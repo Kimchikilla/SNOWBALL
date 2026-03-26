@@ -96,7 +96,8 @@ NOTIFY_ON_STATES = ["CAUTION", "WARNING", "EMERGENCY"]
 DAILY_REPORT_HOUR = _env_int("DAILY_REPORT_HOUR", 21)  # 일일 리포트 발송 시간 (0~23)
 
 # ─── LLM 판단 조건 ─────────────────────────────────────
-LLM_TRIGGER_SCORE = _env_int("LLM_TRIGGER_SCORE", 55)
-LLM_PROVIDER      = _env("LLM_PROVIDER", "anthropic")
-LLM_API_KEY       = _env("LLM_API_KEY", "")
-LLM_MODEL         = _env("LLM_MODEL", "")
+LLM_TRIGGER_SCORE  = _env_int("LLM_TRIGGER_SCORE", 55)
+LLM_PROVIDER       = _env("LLM_PROVIDER", "anthropic")
+LLM_API_KEY        = _env("LLM_API_KEY", "")
+LLM_MODEL          = _env("LLM_MODEL", "")
+MULTI_AGENT_MODE   = _env_bool("MULTI_AGENT_MODE", True)  # True=멀티에이전트 합의, False=단일 LLM
