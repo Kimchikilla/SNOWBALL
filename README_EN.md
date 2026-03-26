@@ -1,5 +1,7 @@
 **English** | [한국어](README.md)
 
+> **⚠️ This software is not financial advice.** All financial losses arising from the use of this program are solely the responsibility of the user. Cryptocurrency trading carries the risk of losing your principal, and past returns do not guarantee future results. Only invest what you can afford to lose.
+
 # Snowball - OKX Adaptive Grid Trading Agent
 
 An adaptive grid trading bot for the OKX exchange. It analyzes market volatility in real-time, automatically adjusts grid spacing, and delegates decisions to Claude AI in risky situations.
@@ -126,6 +128,3 @@ src/
 - API keys are stored in `.env` and managed via `.gitignore`
 - Auto-liquidation triggers at `MAX_LOSS_PERCENT` (default 15%)
 
-## Disclaimer
-
-> **This software is not financial advice.** All financial losses arising from the use of this program are solely the responsibility of the user. Cryptocurrency trading carries the risk of losing your principal, and past returns do not guarantee future results. Only invest what you can afford to lose.
