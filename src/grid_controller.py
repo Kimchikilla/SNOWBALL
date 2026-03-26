@@ -33,6 +33,8 @@ class GridController:
     def __init__(self):
         self.bot_id: Optional[str] = None      # 실행 중인 봇 ID
         self.paused: bool = False
+        self.current_lower: Optional[float] = None   # 현재 그리드 하한
+        self.current_upper: Optional[float] = None   # 현재 그리드 상한
         self.client = httpx.Client(base_url=OKX_BASE_URL, timeout=10)
 
     # ─── 유틸리티 ─────────────────────────────────────────────
@@ -80,6 +82,8 @@ class GridController:
                 else:
                     self._log(f"그리드봇 시작 응답 구조 이상: {resp}", level="ERROR")
                 self.paused = False
+                self.current_lower = float(lower)
+                self.current_upper = float(upper)
                 self._log(f"그리드봇 시작 | bot_id={self.bot_id} | 범위={lower}~{upper} | {count}개 그리드")
             except Exception as e:
                 self._log(f"그리드봇 시작 응답 파싱 실패: {e}", level="ERROR")
@@ -220,6 +224,70 @@ class GridController:
         except Exception as e:
             self._log(f"get_grid_pnl 실패: {e}", level="ERROR")
         return {}
+
+    # ─── 그리드 중심 이동 & 노출 축소 ──────────────────────────
+
+    def shift_grid_center(self, new_center: float, current_price: float,
+                          grid_range: float = None) -> dict:
+        """
+        그리드 중심을 new_center로 이동합니다 (trailing grid).
+        grid_range가 None이면 현재 GRID_UPPER - GRID_LOWER 폭을 그대로 사용합니다.
+        """
+        if not self.bot_id:
+            return {"status": "no_bot"}
+
+        if grid_range is None:
+            if self.current_lower is not None and self.current_upper is not None:
+                grid_range = self.current_upper - self.current_lower
+            else:
+                grid_range = GRID_UPPER - GRID_LOWER
+
+        new_lower = new_center - grid_range / 2
+        new_upper = new_center + grid_range / 2
+
+        self._log(
+            f"그리드 중심 이동 | new_center={new_center:.2f} "
+            f"| 새 범위={new_lower:.2f}~{new_upper:.2f} "
+            f"| current_price={current_price:.2f}"
+        )
+
+        self.stop_grid(sell_remaining=False)
+        resp = self.start_grid(lower=new_lower, upper=new_upper, count=GRID_COUNT)
+        return resp
+
+    def reduce_exposure(self) -> dict:
+        """
+        하락장 방어: 미체결 매수(buy) 주문만 취소하여 추가 매수 노출을 줄입니다.
+        매도 주문은 유지합니다.
+        """
+        try:
+            orders_resp = self._get(
+                "/api/v5/trade/orders-pending",
+                params={"instId": SYMBOL, "ordType": "limit"}
+            )
+            orders = orders_resp.get("data", [])
+            if not isinstance(orders, list):
+                self._log(f"미체결 주문 조회 응답 구조 이상: {type(orders)}", level="ERROR")
+                return {"status": "error", "msg": "unexpected response structure"}
+
+            buy_orders = [
+                {"instId": SYMBOL, "ordId": o["ordId"]}
+                for o in orders
+                if isinstance(o, dict) and o.get("side") == "buy" and "ordId" in o
+            ]
+            if not buy_orders:
+                self._log("reduce_exposure: 취소할 매수 주문 없음")
+                return {"status": "no_buy_orders", "cancelled_count": 0}
+
+            for i in range(0, len(buy_orders), 20):
+                batch = buy_orders[i:i + 20]
+                self._post("/api/v5/trade/cancel-batch-orders", batch)
+
+            self._log(f"하락장 방어: 매수 주문 {len(buy_orders)}개 취소 완료")
+            return {"status": "cancelled", "cancelled_count": len(buy_orders)}
+        except Exception as e:
+            self._log(f"reduce_exposure 실패: {e}", level="ERROR")
+            return {"status": "error", "msg": str(e)}
 
     # ─── 주문 관리 ───────────────────────────────────────────
 

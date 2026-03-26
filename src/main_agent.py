@@ -219,6 +219,7 @@ class GridAgent:
         self.prev_state:  str   = "NORMAL"
         self.entry_price: Optional[float] = None   # 첫 진입 가격 (손절 기준)
         self.loop_count:  int   = 0
+        self.last_shift_time: Optional[datetime] = None  # 그리드 시프트 쿨다운
 
         # 체결 감시용: 마지막으로 확인한 체결 ID
         self.last_fill_id: Optional[str] = None
@@ -350,8 +351,11 @@ class GridAgent:
         # 8. 로그 출력
         state_emoji = {"NORMAL": "🟢", "CAUTION": "🟡", "WARNING": "🟠", "EMERGENCY": "🔴"}
         emoji = state_emoji.get(signal.state, "⚪")
+        trend = getattr(signal, "trend", "N/A")
+        trend_strength = getattr(signal, "trend_strength", 0.0)
         self._log(
-            f"[{ts}] {emoji} {signal.reason} | 가격={price:,.0f} | 액션={action}"
+            f"[{ts}] {emoji} {signal.reason} | 가격={price:,.0f} | "
+            f"추세={trend}(ADX={trend_strength:.1f}) | 액션={action}"
         )
 
         # 9. 상태 변화 시 텔레그램 알림
@@ -361,6 +365,7 @@ class GridAgent:
                     self.notifier.send(
                         f"{emoji} 상태 변화: {self.prev_state} → {signal.state}\n"
                         f"리스크 점수: {signal.risk_score}/100\n"
+                        f"추세: {trend}(ADX={trend_strength:.1f})\n"
                         f"{signal.reason}\n"
                         f"현재가: {price:,.0f}\n"
                         f"액션: {action}"
@@ -372,9 +377,20 @@ class GridAgent:
     # ─── 의사결정 ──────────────────────────────────────────
 
     def _decide_action(self, signal: MarketSignal, price: float) -> str:
-        """상태 머신으로 기본 액션 결정, 애매한 구간은 LLM에게 위임."""
+        """상태 머신으로 기본 액션 결정, 트렌드 감지 및 LLM 위임 포함."""
 
         score = signal.risk_score
+        trend = getattr(signal, "trend", "SIDEWAYS")
+        trend_strength = getattr(signal, "trend_strength", 0.0)
+
+        # ── 트렌드 기반 조기 판단 (리스크 스코어 전에 체크) ──
+        if trend == "BEARISH":
+            if trend_strength >= 50:
+                self._log(f"강한 하락 추세 감지 (ADX={trend_strength:.1f}) → PAUSE")
+                return "PAUSE"
+            if trend_strength >= 30:
+                self._log(f"하락 추세 감지 (ADX={trend_strength:.1f}) → REDUCE")
+                return "REDUCE"
 
         # 점수가 애매한 구간 (CAUTION 경계) → LLM 판단
         if LLM_TRIGGER_SCORE <= score <= SCORE_WARNING:
@@ -384,13 +400,40 @@ class GridAgent:
 
         # 명확한 구간은 룰 베이스로 결정
         if score <= SCORE_CAUTION:
-            return "MAINTAIN"
+            action = "MAINTAIN"
         elif score <= SCORE_WARNING:
-            return "WIDEN"
+            action = "WIDEN"
         elif score <= SCORE_EMERGENCY:
-            return "PAUSE"
+            action = "PAUSE"
         else:
             return "STOP"
+
+        # ── MAINTAIN 시 트렌드 기반 그리드 시프트 ──
+        if action == "MAINTAIN" and trend_strength >= 25:
+            # 쿨다운 체크: 마지막 시프트 이후 10분 경과 필요
+            now = datetime.now()
+            shift_allowed = (
+                self.last_shift_time is None
+                or (now - self.last_shift_time).total_seconds() >= 600
+            )
+
+            if shift_allowed:
+                grid_lower = getattr(self.controller, "current_lower", None)
+                grid_upper = getattr(self.controller, "current_upper", None)
+
+                if grid_lower is not None and grid_upper is not None:
+                    grid_range = grid_upper - grid_lower
+                    upper_threshold = grid_upper - grid_range * 0.2
+                    lower_threshold = grid_lower + grid_range * 0.2
+
+                    if trend == "BULLISH" and price >= upper_threshold:
+                        self._log(f"상승 추세 + 그리드 상단 진입 (ADX={trend_strength:.1f}) → SHIFT_UP")
+                        return "SHIFT_UP"
+                    elif trend == "BEARISH" and price <= lower_threshold:
+                        self._log(f"하락 추세 + 그리드 하단 진입 (ADX={trend_strength:.1f}) → SHIFT_DOWN")
+                        return "SHIFT_DOWN"
+
+        return action
 
     def _execute(self, action: str, signal: MarketSignal, price: float):
         """액션을 실제 API 호출로 변환."""
@@ -411,6 +454,58 @@ class GridAgent:
         elif action == "PAUSE":
             if not self.controller.paused:
                 self.controller.pause_new_orders()
+
+        elif action == "REDUCE":
+            try:
+                self.controller.reduce_exposure()
+                trend_strength = getattr(signal, "trend_strength", 0.0)
+                self.notifier.send(
+                    f"⚠️ 매수 주문 축소 | {SYMBOL}\n"
+                    f"추세: BEARISH (ADX={trend_strength:.1f})\n"
+                    f"현재가: {price:,.0f}"
+                )
+            except Exception as e:
+                self._log(f"REDUCE 실행 실패: {e}", level="ERROR")
+
+        elif action == "SHIFT_UP":
+            try:
+                grid_lower = getattr(self.controller, "current_lower", None)
+                grid_upper = getattr(self.controller, "current_upper", None)
+                if grid_lower is not None and grid_upper is not None:
+                    grid_range = grid_upper - grid_lower
+                    offset = grid_range * 0.1
+                    new_center = price + offset
+                    self.controller.shift_grid_center(new_center, price)
+                    self.last_shift_time = datetime.now()
+                    trend_strength = getattr(signal, "trend_strength", 0.0)
+                    self.notifier.send(
+                        f"📈 그리드 상향 시프트 | {SYMBOL}\n"
+                        f"추세: BULLISH (ADX={trend_strength:.1f})\n"
+                        f"새 중심: {new_center:,.0f}\n"
+                        f"현재가: {price:,.0f}"
+                    )
+            except Exception as e:
+                self._log(f"SHIFT_UP 실행 실패: {e}", level="ERROR")
+
+        elif action == "SHIFT_DOWN":
+            try:
+                grid_lower = getattr(self.controller, "current_lower", None)
+                grid_upper = getattr(self.controller, "current_upper", None)
+                if grid_lower is not None and grid_upper is not None:
+                    grid_range = grid_upper - grid_lower
+                    offset = grid_range * 0.1
+                    new_center = price - offset
+                    self.controller.shift_grid_center(new_center, price)
+                    self.last_shift_time = datetime.now()
+                    trend_strength = getattr(signal, "trend_strength", 0.0)
+                    self.notifier.send(
+                        f"📉 그리드 하향 시프트 | {SYMBOL}\n"
+                        f"추세: BEARISH (ADX={trend_strength:.1f})\n"
+                        f"새 중심: {new_center:,.0f}\n"
+                        f"현재가: {price:,.0f}"
+                    )
+            except Exception as e:
+                self._log(f"SHIFT_DOWN 실행 실패: {e}", level="ERROR")
 
         elif action == "STOP":
             self.controller.emergency_stop()
