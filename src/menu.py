@@ -1,12 +1,35 @@
 """
 menu.py
-메뉴 기반 인터페이스.
+방향키 기반 인터랙티브 메뉴 인터페이스.
 """
 
 import os
 import sys
 
+import questionary
+from questionary import Choice, Style
+
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
+
+# ─── 스타일 ──────────────────────────────────────────────
+
+STYLE = Style([
+    ("qmark", "fg:cyan bold"),
+    ("question", "fg:white bold"),
+    ("answer", "fg:cyan bold"),
+    ("pointer", "fg:cyan bold"),
+    ("highlighted", "fg:cyan bold"),
+    ("selected", "fg:green bold"),
+    ("separator", "fg:gray"),
+    ("instruction", "fg:gray"),
+])
+
+BANNER = """
+╔══════════════════════════════════════════════════╗
+║            ❄️  Snowball Agent  ❄️                ║
+║         OKX Adaptive Grid Trading Agent          ║
+╚══════════════════════════════════════════════════╝
+"""
 
 
 # ─── 유틸 ────────────────────────────────────────────────
@@ -15,83 +38,22 @@ def clear():
     os.system("cls" if os.name == "nt" else "clear")
 
 
+def header(title: str = ""):
+    clear()
+    print(BANNER)
+    if title:
+        print(f"  [{title}]")
+        print()
+
+
 def pause():
     input("\n  아무 키나 눌러 계속...")
 
 
-def header(title: str = ""):
-    clear()
-    print("╔══════════════════════════════════════════════════╗")
-    print("║            ❄️  Snowball Agent  ❄️                ║")
-    print("╚══════════════════════════════════════════════════╝")
-    if title:
-        print(f"  [{title}]")
-    print()
-
-
-# ─── 입력 헬퍼 ──────────────────────────────────────────
-
-def pick(prompt: str, options: list[tuple[str, str]], default_idx: int = 0) -> str:
-    """번호 선택형."""
-    print(f"  {prompt}")
-    for i, (_, label) in enumerate(options):
-        marker = " >" if i == default_idx else "  "
-        print(f"  {marker} {i + 1}. {label}")
-
-    while True:
-        raw = input(f"\n  선택 (기본: {default_idx + 1}): ").strip()
-        if not raw:
-            return options[default_idx][0]
-        try:
-            idx = int(raw) - 1
-            if 0 <= idx < len(options):
-                return options[idx][0]
-        except ValueError:
-            pass
-        print(f"    ⚠ 1~{len(options)} 사이 번호를 입력해주세요.")
-
-
-def ask_key(prompt: str) -> str:
-    """필수 키 입력."""
-    while True:
-        value = input(f"  {prompt}: ").strip()
-        if value:
-            return value
-        print("    ⚠ 값을 입력해주세요.")
-
-
-def ask_number(prompt: str, default: float) -> str:
-    """숫자 입력."""
-    while True:
-        raw = input(f"  {prompt} (기본: {default}): ").strip()
-        if not raw:
-            return str(default)
-        try:
-            float(raw)
-            return raw
-        except ValueError:
-            print("    ⚠ 숫자를 입력해주세요.")
-
-
-def ask_int(prompt: str, default: int) -> str:
-    """정수 입력."""
-    while True:
-        raw = input(f"  {prompt} (기본: {default}): ").strip()
-        if not raw:
-            return str(default)
-        try:
-            int(raw)
-            return raw
-        except ValueError:
-            print("    ⚠ 정수를 입력해주세요.")
-
-
-def confirm(prompt: str, default: bool = True) -> bool:
-    hint = "Y/n" if default else "y/N"
-    raw = input(f"  {prompt} [{hint}]: ").strip().lower()
-    if not raw:
-        return default
-    return raw in ("y", "yes")
+def mask(value: str) -> str:
+    if not value or len(value) <= 6:
+        return "****"
+    return value[:3] + "*" * (len(value) - 6) + value[-3:]
 
 
 # ─── .env 읽기/쓰기 ─────────────────────────────────────
@@ -116,12 +78,6 @@ def save_env(env: dict):
         f.write("\n".join(lines) + "\n")
 
 
-def mask(value: str) -> str:
-    if not value or len(value) <= 6:
-        return "****"
-    return value[:3] + "*" * (len(value) - 6) + value[-3:]
-
-
 def is_configured() -> bool:
     env = load_env()
     return bool(env.get("OKX_API_KEY") and env.get("LLM_API_KEY"))
@@ -134,35 +90,37 @@ def main_menu():
         header()
         configured = is_configured()
         status = "✅ 설정 완료" if configured else "❌ 설정 필요"
+        print(f"  상태: {status}\n")
 
-        print(f"  상태: {status}")
-        print()
-        print("  1. 🚀 에이전트 시작")
-        print("  2. ⚙️  설정")
-        print("  3. 📋 현재 설정 보기")
-        print("  4. 🚪 종료")
-        print()
+        action = questionary.select(
+            "메뉴 선택",
+            choices=[
+                Choice("🚀 에이전트 시작", value="start"),
+                Choice("⚙️  설정", value="settings"),
+                Choice("📋 현재 설정 보기", value="view"),
+                Choice("🚪 종료", value="quit"),
+            ],
+            style=STYLE,
+            instruction="(↑↓ 이동, Enter 선택)",
+        ).ask()
 
-        choice = input("  선택: ").strip()
+        if action is None or action == "quit":
+            clear()
+            print("  👋 종료합니다.")
+            sys.exit(0)
 
-        if choice == "1":
+        if action == "start":
             if not configured:
-                header()
-                print("  ⚠ 먼저 설정을 완료해주세요.")
+                print("\n  ⚠ 먼저 설정을 완료해주세요.")
                 pause()
                 continue
             return "start"
 
-        elif choice == "2":
+        if action == "settings":
             settings_menu()
 
-        elif choice == "3":
+        if action == "view":
             view_settings()
-
-        elif choice == "4":
-            clear()
-            print("  👋 종료합니다.")
-            sys.exit(0)
 
 
 # ─── 설정 메뉴 ──────────────────────────────────────────
@@ -172,145 +130,352 @@ def settings_menu():
         header("설정")
         env = load_env()
 
-        has_okx = bool(env.get("OKX_API_KEY"))
-        has_llm = bool(env.get("LLM_API_KEY"))
-        has_tg = bool(env.get("TELEGRAM_TOKEN"))
+        okx = "✅" if env.get("OKX_API_KEY") else "❌"
+        llm = "✅" if env.get("LLM_API_KEY") else "❌"
+        tg = "✅" if env.get("TELEGRAM_TOKEN") else "⬜"
 
-        okx_status = "✅" if has_okx else "❌"
-        llm_status = "✅" if has_llm else "❌"
-        tg_status = "✅" if has_tg else "⬜"
+        action = questionary.select(
+            "설정 항목",
+            choices=[
+                Choice(f"{okx} OKX API", value="okx"),
+                Choice(f"{okx} 거래 설정", value="trading"),
+                Choice(f"{llm} LLM 설정", value="llm"),
+                Choice(f"{tg} 텔레그램 알림", value="telegram"),
+                Choice("⬜ 고급 설정", value="advanced"),
+                questionary.Separator(),
+                Choice("← 뒤로", value="back"),
+            ],
+            style=STYLE,
+            instruction="(↑↓ 이동, Enter 선택)",
+        ).ask()
 
-        print(f"  1. {okx_status} OKX API")
-        print(f"  2. {okx_status} 거래 설정")
-        print(f"  3. {llm_status} LLM 설정")
-        print(f"  4. {tg_status} 텔레그램 알림")
-        print(f"  5. ⬜ 고급 설정")
-        print()
-        print("  0. ← 뒤로")
-        print()
-
-        choice = input("  선택: ").strip()
-
-        if choice == "1":
-            setup_okx(env)
-        elif choice == "2":
-            setup_trading(env)
-        elif choice == "3":
-            setup_llm(env)
-        elif choice == "4":
-            setup_telegram(env)
-        elif choice == "5":
-            setup_advanced(env)
-        elif choice == "0":
+        if action is None or action == "back":
             return
 
+        if action == "okx":
+            setup_okx(env)
+        elif action == "trading":
+            setup_trading(env)
+        elif action == "llm":
+            setup_llm(env)
+        elif action == "telegram":
+            setup_telegram(env)
+        elif action == "advanced":
+            setup_advanced(env)
+
+
+# ─── OKX API 설정 ───────────────────────────────────────
 
 def setup_okx(env: dict):
     header("OKX API 설정")
-    env["OKX_API_KEY"] = ask_key("API Key")
-    env["OKX_SECRET_KEY"] = ask_key("Secret Key")
-    env["OKX_PASSPHRASE"] = ask_key("Passphrase")
-    print()
-    env["DEMO_MODE"] = pick("거래 모드", [
-        ("true", "Demo (모의거래)"),
-        ("false", "Live (실거래)"),
-    ], default_idx=0)
+
+    api_key = questionary.text(
+        "API Key:",
+        style=STYLE,
+    ).ask()
+    if api_key is None:
+        return
+    env["OKX_API_KEY"] = api_key
+
+    secret = questionary.password(
+        "Secret Key:",
+        style=STYLE,
+    ).ask()
+    if secret is None:
+        return
+    env["OKX_SECRET_KEY"] = secret
+
+    passphrase = questionary.password(
+        "Passphrase:",
+        style=STYLE,
+    ).ask()
+    if passphrase is None:
+        return
+    env["OKX_PASSPHRASE"] = passphrase
+
+    mode = questionary.select(
+        "거래 모드",
+        choices=[
+            Choice("Demo (모의거래)", value="true"),
+            Choice("Live (실거래)", value="false"),
+        ],
+        style=STYLE,
+    ).ask()
+    if mode is None:
+        return
+    env["DEMO_MODE"] = mode
+
     save_env(env)
-    print("\n  ✅ 저장 완료")
+    print("\n  ✅ OKX API 설정 저장 완료")
     pause()
 
+
+# ─── 거래 설정 ───────────────────────────────────────────
 
 def setup_trading(env: dict):
     header("거래 설정")
-    env["SYMBOL"] = pick("거래 심볼", [
-        ("BTC-USDT", "BTC-USDT"),
-        ("ETH-USDT", "ETH-USDT"),
-        ("SOL-USDT", "SOL-USDT"),
-        ("XRP-USDT", "XRP-USDT"),
-    ], default_idx=0)
-    print()
-    env["TOTAL_BUDGET"] = ask_number("총 예산 (USDT)", float(env.get("TOTAL_BUDGET", 1000)))
-    env["GRID_BUDGET"] = ask_number("그리드 예산 (USDT)", float(env.get("GRID_BUDGET", 400)))
-    env["GRID_LOWER"] = ask_number("그리드 하단 가격", float(env.get("GRID_LOWER", 90000)))
-    env["GRID_UPPER"] = ask_number("그리드 상단 가격", float(env.get("GRID_UPPER", 110000)))
-    env["GRID_COUNT"] = ask_int("그리드 개수", int(env.get("GRID_COUNT", 20)))
-    print()
-    env["GRID_MODE"] = pick("그리드 모드", [
-        ("arithmetic", "Arithmetic (등차)"),
-        ("geometric", "Geometric (등비)"),
-    ], default_idx=0)
+
+    symbol = questionary.select(
+        "거래 심볼",
+        choices=[
+            Choice("BTC-USDT", value="BTC-USDT"),
+            Choice("ETH-USDT", value="ETH-USDT"),
+            Choice("SOL-USDT", value="SOL-USDT"),
+            Choice("XRP-USDT", value="XRP-USDT"),
+        ],
+        default="BTC-USDT",
+        style=STYLE,
+    ).ask()
+    if symbol is None:
+        return
+    env["SYMBOL"] = symbol
+
+    budget = questionary.text(
+        "총 예산 (USDT):",
+        default=env.get("TOTAL_BUDGET", "1000"),
+        validate=lambda v: True if _is_number(v) else "숫자를 입력해주세요",
+        style=STYLE,
+    ).ask()
+    if budget is None:
+        return
+    env["TOTAL_BUDGET"] = budget
+
+    grid_budget = questionary.text(
+        "그리드 예산 (USDT):",
+        default=env.get("GRID_BUDGET", "400"),
+        validate=lambda v: True if _is_number(v) else "숫자를 입력해주세요",
+        style=STYLE,
+    ).ask()
+    if grid_budget is None:
+        return
+    env["GRID_BUDGET"] = grid_budget
+
+    lower = questionary.text(
+        "그리드 하단 가격:",
+        default=env.get("GRID_LOWER", "90000"),
+        validate=lambda v: True if _is_number(v) else "숫자를 입력해주세요",
+        style=STYLE,
+    ).ask()
+    if lower is None:
+        return
+    env["GRID_LOWER"] = lower
+
+    upper = questionary.text(
+        "그리드 상단 가격:",
+        default=env.get("GRID_UPPER", "110000"),
+        validate=lambda v: True if _is_number(v) else "숫자를 입력해주세요",
+        style=STYLE,
+    ).ask()
+    if upper is None:
+        return
+    env["GRID_UPPER"] = upper
+
+    count = questionary.text(
+        "그리드 개수:",
+        default=env.get("GRID_COUNT", "20"),
+        validate=lambda v: True if _is_int(v) else "정수를 입력해주세요",
+        style=STYLE,
+    ).ask()
+    if count is None:
+        return
+    env["GRID_COUNT"] = count
+
+    mode = questionary.select(
+        "그리드 모드",
+        choices=[
+            Choice("Arithmetic (등차)", value="arithmetic"),
+            Choice("Geometric (등비)", value="geometric"),
+        ],
+        style=STYLE,
+    ).ask()
+    if mode is None:
+        return
+    env["GRID_MODE"] = mode
+
     save_env(env)
-    print("\n  ✅ 저장 완료")
+    print("\n  ✅ 거래 설정 저장 완료")
     pause()
 
+
+# ─── LLM 설정 ───────────────────────────────────────────
 
 def setup_llm(env: dict):
     header("LLM 설정")
-    env["LLM_PROVIDER"] = pick("LLM 제공자", [
-        ("anthropic", "Anthropic (Claude)"),
-        ("openai", "OpenAI (GPT)"),
-    ], default_idx=0)
-    print()
-    env["LLM_API_KEY"] = ask_key("API Key")
-    print()
 
-    if env["LLM_PROVIDER"] == "anthropic":
+    provider = questionary.select(
+        "LLM 제공자",
+        choices=[
+            Choice("Anthropic (Claude)", value="anthropic"),
+            Choice("OpenAI (GPT)", value="openai"),
+        ],
+        style=STYLE,
+    ).ask()
+    if provider is None:
+        return
+    env["LLM_PROVIDER"] = provider
+
+    api_key = questionary.password(
+        "API Key:",
+        style=STYLE,
+    ).ask()
+    if api_key is None:
+        return
+    env["LLM_API_KEY"] = api_key
+
+    if provider == "anthropic":
         models = [
-            ("claude-sonnet-4-20250514", "Claude Sonnet 4 (추천)"),
-            ("claude-opus-4-20250514", "Claude Opus 4"),
-            ("claude-haiku-4-20250414", "Claude Haiku 4 (경량)"),
+            Choice("Claude Sonnet 4 (추천)", value="claude-sonnet-4-20250514"),
+            Choice("Claude Opus 4", value="claude-opus-4-20250514"),
+            Choice("Claude Haiku 4 (경량)", value="claude-haiku-4-20250414"),
         ]
     else:
         models = [
-            ("gpt-4o", "GPT-4o (추천)"),
-            ("gpt-4o-mini", "GPT-4o Mini (경량)"),
-            ("gpt-4.1", "GPT-4.1"),
+            Choice("GPT-4o (추천)", value="gpt-4o"),
+            Choice("GPT-4o Mini (경량)", value="gpt-4o-mini"),
+            Choice("GPT-4.1", value="gpt-4.1"),
         ]
 
-    env["LLM_MODEL"] = pick("모델 선택", models, default_idx=0)
+    model = questionary.select(
+        "모델 선택",
+        choices=models,
+        style=STYLE,
+    ).ask()
+    if model is None:
+        return
+    env["LLM_MODEL"] = model
+
     save_env(env)
-    print("\n  ✅ 저장 완료")
+    print("\n  ✅ LLM 설정 저장 완료")
     pause()
 
+
+# ─── 텔레그램 설정 ───────────────────────────────────────
 
 def setup_telegram(env: dict):
     header("텔레그램 알림 설정")
 
-    if env.get("TELEGRAM_TOKEN"):
-        print(f"  현재: {mask(env['TELEGRAM_TOKEN'])}")
-        print()
-        if not confirm("다시 설정할까요?", default=True):
-            return
+    use = questionary.confirm(
+        "텔레그램 알림을 사용할까요?",
+        default=bool(env.get("TELEGRAM_TOKEN")),
+        style=STYLE,
+    ).ask()
 
-    use = confirm("텔레그램 알림을 사용할까요?", default=True)
-    if use:
-        env["TELEGRAM_TOKEN"] = ask_key("Bot Token")
-        env["TELEGRAM_CHAT_ID"] = ask_key("Chat ID")
-    else:
+    if use is None:
+        return
+
+    if not use:
         env.pop("TELEGRAM_TOKEN", None)
         env.pop("TELEGRAM_CHAT_ID", None)
+        save_env(env)
+        print("\n  ✅ 텔레그램 알림 해제됨")
+        pause()
+        return
+
+    token = questionary.text(
+        "Bot Token:",
+        default=env.get("TELEGRAM_TOKEN", ""),
+        style=STYLE,
+    ).ask()
+    if token is None:
+        return
+    env["TELEGRAM_TOKEN"] = token
+
+    chat_id = questionary.text(
+        "Chat ID:",
+        default=env.get("TELEGRAM_CHAT_ID", ""),
+        style=STYLE,
+    ).ask()
+    if chat_id is None:
+        return
+    env["TELEGRAM_CHAT_ID"] = chat_id
+
+    # 알림 받을 상태 선택 (중복 선택)
+    notify_states = questionary.checkbox(
+        "알림 받을 상태 (Space로 선택, Enter로 확인)",
+        choices=[
+            Choice("CAUTION (주의)", value="CAUTION", checked=True),
+            Choice("WARNING (경고)", value="WARNING", checked=True),
+            Choice("EMERGENCY (긴급)", value="EMERGENCY", checked=True),
+        ],
+        style=STYLE,
+        instruction="(↑↓ 이동, Space 선택/해제, Enter 확인)",
+    ).ask()
+    if notify_states is None:
+        return
+    env["NOTIFY_ON_STATES"] = ",".join(notify_states)
 
     save_env(env)
-    print("\n  ✅ 저장 완료")
+    print("\n  ✅ 텔레그램 설정 저장 완료")
     pause()
 
 
+# ─── 고급 설정 ───────────────────────────────────────────
+
 def setup_advanced(env: dict):
     header("고급 설정")
-    env["LOOP_INTERVAL_SEC"] = ask_int("루프 간격 (초)", int(env.get("LOOP_INTERVAL_SEC", 120)))
-    env["MAX_LOSS_PERCENT"] = ask_number("손절 기준 (%)", float(env.get("MAX_LOSS_PERCENT", 15)))
-    env["LLM_TRIGGER_SCORE"] = ask_int("LLM 판단 최소 점수", int(env.get("LLM_TRIGGER_SCORE", 55)))
-    print()
-    env["CANDLE_INTERVAL"] = pick("캔들 기준", [
-        ("1m", "1분"),
-        ("5m", "5분"),
-        ("15m", "15분"),
-        ("1H", "1시간"),
-    ], default_idx=0)
-    print()
-    env["CANDLE_LOOKBACK"] = ask_int("캔들 개수", int(env.get("CANDLE_LOOKBACK", 100)))
+
+    loop = questionary.select(
+        "루프 간격",
+        choices=[
+            Choice("30초", value="30"),
+            Choice("1분", value="60"),
+            Choice("2분 (기본)", value="120"),
+            Choice("5분", value="300"),
+            Choice("10분", value="600"),
+        ],
+        default="120",
+        style=STYLE,
+    ).ask()
+    if loop is None:
+        return
+    env["LOOP_INTERVAL_SEC"] = loop
+
+    loss = questionary.text(
+        "손절 기준 (%):",
+        default=env.get("MAX_LOSS_PERCENT", "15"),
+        validate=lambda v: True if _is_number(v) else "숫자를 입력해주세요",
+        style=STYLE,
+    ).ask()
+    if loss is None:
+        return
+    env["MAX_LOSS_PERCENT"] = loss
+
+    trigger = questionary.text(
+        "LLM 판단 최소 점수:",
+        default=env.get("LLM_TRIGGER_SCORE", "55"),
+        validate=lambda v: True if _is_int(v) else "정수를 입력해주세요",
+        style=STYLE,
+    ).ask()
+    if trigger is None:
+        return
+    env["LLM_TRIGGER_SCORE"] = trigger
+
+    candle = questionary.select(
+        "캔들 기준",
+        choices=[
+            Choice("1분", value="1m"),
+            Choice("5분", value="5m"),
+            Choice("15분", value="15m"),
+            Choice("1시간", value="1H"),
+        ],
+        style=STYLE,
+    ).ask()
+    if candle is None:
+        return
+    env["CANDLE_INTERVAL"] = candle
+
+    lookback = questionary.text(
+        "캔들 개수:",
+        default=env.get("CANDLE_LOOKBACK", "100"),
+        validate=lambda v: True if _is_int(v) else "정수를 입력해주세요",
+        style=STYLE,
+    ).ask()
+    if lookback is None:
+        return
+    env["CANDLE_LOOKBACK"] = lookback
+
     save_env(env)
-    print("\n  ✅ 저장 완료")
+    print("\n  ✅ 고급 설정 저장 완료")
     pause()
 
 
@@ -326,27 +491,44 @@ def view_settings():
         return
 
     mode = "Demo (모의거래)" if env.get("DEMO_MODE", "true") == "true" else "⚠ Live (실거래)"
-    provider = env.get("LLM_PROVIDER", "-")
-    model = env.get("LLM_MODEL", "-")
+
+    print("  ┌──────────────────────────────────────────┐")
+    print(f"  │ {'OKX API':<13}: {mask(env.get('OKX_API_KEY', '')):<26}│")
+    print(f"  │ {'거래 모드':<11}: {mode:<26}│")
+    print("  ├──────────────────────────────────────────┤")
+    print(f"  │ {'심볼':<12}: {env.get('SYMBOL', '-'):<26}│")
+    print(f"  │ {'총 예산':<11}: {env.get('TOTAL_BUDGET', '-') + ' USDT':<26}│")
+    print(f"  │ {'그리드 범위':<10}: {env.get('GRID_LOWER', '-') + ' ~ ' + env.get('GRID_UPPER', '-'):<26}│")
+    print(f"  │ {'그리드 개수':<10}: {env.get('GRID_COUNT', '-'):<26}│")
+    print(f"  │ {'그리드 모드':<10}: {env.get('GRID_MODE', '-'):<26}│")
+    print("  ├──────────────────────────────────────────┤")
+    llm_info = f"{env.get('LLM_PROVIDER', '-')} / {env.get('LLM_MODEL', '-')}"
+    print(f"  │ {'LLM':<13}: {llm_info:<26}│")
+    print(f"  │ {'LLM Key':<13}: {mask(env.get('LLM_API_KEY', '')):<26}│")
+    print("  ├──────────────────────────────────────────┤")
     tg = "설정됨" if env.get("TELEGRAM_TOKEN") else "미설정"
     loop = env.get("LOOP_INTERVAL_SEC", "120")
     loss = env.get("MAX_LOSS_PERCENT", "15")
-
-    print("  ┌─────────────────────────────────────────────┐")
-    print(f"  │ OKX API Key    : {mask(env.get('OKX_API_KEY', '')):<27}│")
-    print(f"  │ 거래 모드       : {mode:<27}│")
-    print("  ├─────────────────────────────────────────────┤")
-    print(f"  │ 심볼            : {env.get('SYMBOL', '-'):<27}│")
-    print(f"  │ 총 예산          : {env.get('TOTAL_BUDGET', '-')} USDT{'':<19}│")
-    print(f"  │ 그리드 범위      : {env.get('GRID_LOWER', '-')} ~ {env.get('GRID_UPPER', '-'):<14}│")
-    print(f"  │ 그리드 개수      : {env.get('GRID_COUNT', '-'):<27}│")
-    print(f"  │ 그리드 모드      : {env.get('GRID_MODE', '-'):<27}│")
-    print("  ├─────────────────────────────────────────────┤")
-    print(f"  │ LLM             : {provider} / {model:<14}│")
-    print(f"  │ LLM API Key     : {mask(env.get('LLM_API_KEY', '')):<27}│")
-    print("  ├─────────────────────────────────────────────┤")
-    print(f"  │ 텔레그램         : {tg:<27}│")
-    print(f"  │ 루프 간격        : {loop}초{'':<24}│")
-    print(f"  │ 손절 기준        : {loss}%{'':<24}│")
-    print("  └─────────────────────────────────────────────┘")
+    print(f"  │ {'텔레그램':<11}: {tg:<26}│")
+    print(f"  │ {'루프 간격':<11}: {loop + '초':<26}│")
+    print(f"  │ {'손절 기준':<11}: {loss + '%':<26}│")
+    print("  └──────────────────────────────────────────┘")
     pause()
+
+
+# ─── 검증 헬퍼 ───────────────────────────────────────────
+
+def _is_number(v: str) -> bool:
+    try:
+        float(v)
+        return True
+    except ValueError:
+        return False
+
+
+def _is_int(v: str) -> bool:
+    try:
+        int(v)
+        return True
+    except ValueError:
+        return False
