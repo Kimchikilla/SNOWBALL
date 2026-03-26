@@ -24,6 +24,7 @@ from config import (
     MAX_LOSS_PERCENT,
     LLM_TRIGGER_SCORE, LLM_PROVIDER, LLM_API_KEY, LLM_MODEL,
     TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, NOTIFY_ON_STATES,
+    DAILY_REPORT_HOUR,
 )
 from market_analyzer import MarketAnalyzer, MarketSignal
 from grid_controller import GridController
@@ -172,6 +173,16 @@ class GridAgent:
         self.entry_price: Optional[float] = None   # 첫 진입 가격 (손절 기준)
         self.loop_count:  int   = 0
 
+        # 체결 감시용: 마지막으로 확인한 체결 ID
+        self.last_fill_id: Optional[str] = None
+        # 당일 체결 누적 (리포트용)
+        self.daily_buys:   int   = 0
+        self.daily_sells:  int   = 0
+        self.daily_buy_vol:  float = 0.0
+        self.daily_sell_vol: float = 0.0
+        # 일일 리포트 발송 여부
+        self._report_sent_date: Optional[str] = None
+
     def run(self):
         """무한 루프 실행."""
         self._log("🚀 OKX Adaptive Grid Agent 시작")
@@ -214,20 +225,26 @@ class GridAgent:
             self.notifier.send(f"💀 손절 청산 | {SYMBOL} | 현재가={price:,.0f}")
             return
 
-        # 4. 점수가 애매한 구간이면 LLM 판단 요청
+        # 4. 체결 내역 감시 → 매수/매도 알림
+        self._check_fills(price)
+
+        # 5. 점수가 애매한 구간이면 LLM 판단 요청
         action = self._decide_action(signal, price)
 
-        # 5. 액션 실행
+        # 6. 액션 실행
         self._execute(action, signal, price)
 
-        # 6. 로그 출력
+        # 7. 일일 리포트 체크
+        self._check_daily_report(price)
+
+        # 8. 로그 출력
         state_emoji = {"NORMAL": "🟢", "CAUTION": "🟡", "WARNING": "🟠", "EMERGENCY": "🔴"}
         emoji = state_emoji.get(signal.state, "⚪")
         self._log(
             f"[{ts}] {emoji} {signal.reason} | 가격={price:,.0f} | 액션={action}"
         )
 
-        # 7. 상태 변화 시 텔레그램 알림
+        # 9. 상태 변화 시 텔레그램 알림
         if signal.state != self.prev_state:
             if signal.state in NOTIFY_ON_STATES:
                 self.notifier.send(
@@ -289,6 +306,118 @@ class GridAgent:
                 f"리스크 점수: {signal.risk_score}/100\n"
                 f"사유: {signal.reason}"
             )
+
+    # ─── 체결 감시 ─────────────────────────────────────────
+
+    def _check_fills(self, current_price: float):
+        """새로운 체결 내역을 감지하고 텔레그램으로 알림."""
+        try:
+            fills = self.controller.get_recent_fills(limit=10)
+        except Exception:
+            return
+
+        if not fills:
+            return
+
+        # 첫 실행 시 마지막 ID만 기록
+        if self.last_fill_id is None:
+            self.last_fill_id = fills[0].get("tradeId", "")
+            return
+
+        # 새 체결만 필터링 (최신순으로 오므로 last_fill_id 이전까지)
+        new_fills = []
+        for f in fills:
+            if f.get("tradeId", "") == self.last_fill_id:
+                break
+            new_fills.append(f)
+
+        if not new_fills:
+            return
+
+        self.last_fill_id = new_fills[0].get("tradeId", "")
+
+        for f in reversed(new_fills):
+            side = f.get("side", "")
+            px   = float(f.get("fillPx", 0))
+            sz   = float(f.get("fillSz", 0))
+            fee  = float(f.get("fee", 0))
+
+            if side == "buy":
+                emoji = "🟢"
+                label = "매수"
+                self.daily_buys += 1
+                self.daily_buy_vol += sz
+            else:
+                emoji = "🔴"
+                label = "매도"
+                self.daily_sells += 1
+                self.daily_sell_vol += sz
+
+            msg = (
+                f"{emoji} {label} 체결 | {SYMBOL}\n"
+                f"가격: {px:,.2f} USDT\n"
+                f"수량: {sz}\n"
+                f"수수료: {fee:.6f}\n"
+                f"현재가: {current_price:,.0f}"
+            )
+            self.notifier.send(msg)
+            self._log(f"{emoji} {label} 체결 | 가격={px:,.2f} | 수량={sz}")
+
+    # ─── 일일 리포트 ─────────────────────────────────────
+
+    def _check_daily_report(self, current_price: float):
+        """매일 지정 시간에 당일 손익 리포트를 텔레그램으로 발송."""
+        now = datetime.now()
+        today = now.strftime("%Y-%m-%d")
+
+        # 이미 오늘 보냈으면 스킵
+        if self._report_sent_date == today:
+            return
+
+        # 지정 시간이 안 됐으면 스킵
+        if now.hour < DAILY_REPORT_HOUR:
+            return
+
+        # 날짜가 바뀌었으면 당일 카운터 리셋
+        if self._report_sent_date and self._report_sent_date != today:
+            self.daily_buys = 0
+            self.daily_sells = 0
+            self.daily_buy_vol = 0.0
+            self.daily_sell_vol = 0.0
+
+        # PnL 조회
+        pnl = self.controller.get_grid_pnl()
+
+        grid_profit = pnl.get("grid_profit", 0)
+        float_profit = pnl.get("float_profit", 0)
+        total_pnl = pnl.get("total_pnl", 0)
+        investment = pnl.get("investment", 0)
+        roi = (total_pnl / investment * 100) if investment > 0 else 0
+
+        pnl_emoji = "📈" if total_pnl >= 0 else "📉"
+
+        msg = (
+            f"📊 일일 리포트 | {today}\n"
+            f"{'─' * 28}\n"
+            f"심볼: {SYMBOL}\n"
+            f"현재가: {current_price:,.0f} USDT\n"
+            f"{'─' * 28}\n"
+            f"{pnl_emoji} 손익 현황\n"
+            f"  그리드 수익: {grid_profit:+,.2f} USDT\n"
+            f"  평가 손익: {float_profit:+,.2f} USDT\n"
+            f"  총 손익: {total_pnl:+,.2f} USDT\n"
+            f"  수익률: {roi:+.2f}%\n"
+            f"{'─' * 28}\n"
+            f"📋 당일 체결\n"
+            f"  매수: {self.daily_buys}건 ({self.daily_buy_vol:.6f})\n"
+            f"  매도: {self.daily_sells}건 ({self.daily_sell_vol:.6f})\n"
+            f"{'─' * 28}\n"
+            f"상태: {self.prev_state}"
+        )
+
+        self.notifier.send(msg)
+        self._log(f"📊 일일 리포트 발송 | 총 손익={total_pnl:+,.2f} USDT")
+        self._report_sent_date = today
 
     # ─── 손절 체크 ─────────────────────────────────────────
 

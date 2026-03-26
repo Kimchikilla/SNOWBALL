@@ -150,6 +150,33 @@ class GridController:
         )
         return resp
 
+    def get_recent_fills(self, limit: int = 20) -> list[dict]:
+        """최근 체결 내역 조회."""
+        resp = self._get(
+            "/api/v5/trade/fills-history",
+            params={"instId": SYMBOL, "limit": str(limit)}
+        )
+        return resp.get("data", [])
+
+    def get_grid_pnl(self) -> dict:
+        """그리드봇 수익 정보 조회."""
+        if not self.bot_id:
+            return {}
+        resp = self._get(
+            "/api/v5/tradingBot/grid/orders-algo-details",
+            params={"algoId": self.bot_id, "algoOrdType": "grid"}
+        )
+        if resp.get("code") == "0" and resp.get("data"):
+            data = resp["data"][0]
+            return {
+                "grid_profit": float(data.get("gridProfit", 0)),
+                "float_profit": float(data.get("floatProfit", 0)),
+                "total_pnl": float(data.get("totalPnl", 0)),
+                "annualized_rate": float(data.get("annualizedRate", 0)),
+                "investment": float(data.get("investment", 0)),
+            }
+        return {}
+
     # ─── 주문 관리 ───────────────────────────────────────────
 
     def _cancel_pending_orders(self) -> dict:

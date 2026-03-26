@@ -81,6 +81,7 @@ CANDLE_LOOKBACK      = _env_int("CANDLE_LOOKBACK", 100)
 TELEGRAM_TOKEN   = _env("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = _env("TELEGRAM_CHAT_ID", "")
 NOTIFY_ON_STATES = ["CAUTION", "WARNING", "EMERGENCY"]
+DAILY_REPORT_HOUR = _env_int("DAILY_REPORT_HOUR", 21)  # 일일 리포트 발송 시간 (0~23)
 
 # ─── LLM 판단 조건 ─────────────────────────────────────
 LLM_TRIGGER_SCORE = _env_int("LLM_TRIGGER_SCORE", 55)
