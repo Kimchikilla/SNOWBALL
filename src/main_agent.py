@@ -230,8 +230,27 @@ class GridAgent:
         # 일일 리포트 발송 여부
         self._report_sent_date: Optional[str] = None
 
+    @staticmethod
+    def _print_disclaimer():
+        RED = "\033[91m"
+        BOLD = "\033[1m"
+        RESET = "\033[0m"
+        print()
+        print(f"{RED}{'═' * 56}{RESET}")
+        print(f"{RED}{BOLD}  ⚠️  투자 위험 경고{RESET}")
+        print(f"{RED}{'═' * 56}{RESET}")
+        print(f"{RED}  이 소프트웨어는 투자 조언이 아닙니다.{RESET}")
+        print(f"{RED}  본 프로그램 사용으로 발생하는 모든 금전적 손실에 대한{RESET}")
+        print(f"{RED}  책임은 전적으로 사용자 본인에게 있습니다.{RESET}")
+        print(f"{RED}  암호화폐 거래는 원금 손실 위험이 있으며,{RESET}")
+        print(f"{RED}  과거 수익이 미래 수익을 보장하지 않습니다.{RESET}")
+        print(f"{RED}  반드시 감당 가능한 금액만 투자하세요.{RESET}")
+        print(f"{RED}{'═' * 56}{RESET}")
+        print()
+
     def run(self):
         """무한 루프 실행."""
+        self._print_disclaimer()
         self._log("🚀 OKX Adaptive Grid Agent 시작")
         self._log(f"   심볼: {SYMBOL} | 데모: {DEMO_MODE} | 간격: {LOOP_INTERVAL_SEC}초")
         self.notifier.send(f"🚀 Grid Agent 시작 | {SYMBOL} | Demo={DEMO_MODE}")
