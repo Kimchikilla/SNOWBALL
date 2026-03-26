@@ -24,10 +24,11 @@ from config import (
     MAX_LOSS_PERCENT,
     LLM_TRIGGER_SCORE, LLM_PROVIDER, LLM_API_KEY, LLM_MODEL,
     TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, NOTIFY_ON_STATES,
-    DAILY_REPORT_HOUR,
+    DAILY_REPORT_HOUR, MULTI_AGENT_MODE,
 )
 from market_analyzer import MarketAnalyzer, MarketSignal
 from grid_controller import GridController
+from multi_agent import MultiAgentJudge, format_consensus_for_telegram
 
 
 # ──────────────────────────────────────────────────────────────
@@ -215,6 +216,7 @@ class GridAgent:
         self.fetcher     = OKXDataFetcher()
         self.notifier    = Notifier()
         self.llm_judge   = LLMJudge()
+        self.multi_agent = MultiAgentJudge()
 
         self.prev_state:  str   = "NORMAL"
         self.entry_price: Optional[float] = None   # 첫 진입 가격 (손절 기준)
@@ -392,11 +394,22 @@ class GridAgent:
                 self._log(f"하락 추세 감지 (ADX={trend_strength:.1f}) → REDUCE")
                 return "REDUCE"
 
-        # 점수가 애매한 구간 (CAUTION 경계) → LLM 판단
+        # 점수가 애매한 구간 (CAUTION 경계) → 멀티 에이전트 합의 또는 단일 LLM
         if LLM_TRIGGER_SCORE <= score <= SCORE_WARNING:
-            llm_action = self.llm_judge.judge(signal, price)
-            self._log(f"LLM 판단: {llm_action} (score={score})")
-            return llm_action
+            if MULTI_AGENT_MODE and self.multi_agent.available:
+                result = self.multi_agent.judge_with_detail(signal, price)
+                self._log(
+                    f"멀티 에이전트 합의: {result.final_action} "
+                    f"(동의율={result.agreement_rate:.0f}%, score={score})"
+                )
+                # 합의 결과 텔레그램 발송
+                self.notifier.send(format_consensus_for_telegram(result))
+                return result.final_action
+            else:
+                # 멀티 에이전트 불가 시 단일 LLM 폴백
+                llm_action = self.llm_judge.judge(signal, price)
+                self._log(f"LLM 단독 판단: {llm_action} (score={score})")
+                return llm_action
 
         # 명확한 구간은 룰 베이스로 결정
         if score <= SCORE_CAUTION:
