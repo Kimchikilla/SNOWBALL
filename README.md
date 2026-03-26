@@ -2,6 +2,10 @@
 
 OKX 거래소에서 동작하는 적응형 그리드 트레이딩 봇이다람쥐. 시장 변동성을 실시간 분석하여 그리드 간격을 자동 조절하고, 위험 상황에서는 Claude AI의 판단을 받아 대응하는 다람쥐.
 
+## 아키텍처
+
+![Architecture](okx_adaptive_grid_agent_architecture.svg)
+
 ## 작동 방식
 
 30초마다 아래 사이클을 반복하는 다람쥐:
