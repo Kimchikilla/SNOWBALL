@@ -52,4 +52,6 @@ NOTIFY_ON_STATES = ["CAUTION", "WARNING", "EMERGENCY"]
 
 # ─── LLM 판단 조건 ─────────────────────────────────────
 LLM_TRIGGER_SCORE = 55               # 이 점수 이상이면 LLM에 판단 요청
-LLM_API_KEY       = "YOUR_ANTHROPIC_KEY"
+LLM_PROVIDER      = "anthropic"      # "anthropic" | "openai"
+LLM_API_KEY       = "YOUR_API_KEY"
+LLM_MODEL         = ""               # 비워두면 기본값 사용 (anthropic: claude-sonnet-4-20250514, openai: gpt-4o)

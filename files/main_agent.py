@@ -13,6 +13,7 @@ from typing import Optional
 
 import httpx
 import anthropic
+import openai
 
 from config import (
     OKX_BASE_URL, SYMBOL, DEMO_MODE,
@@ -20,7 +21,7 @@ from config import (
     LOOP_INTERVAL_SEC,
     SCORE_CAUTION, SCORE_WARNING, SCORE_EMERGENCY,
     MAX_LOSS_PERCENT,
-    LLM_TRIGGER_SCORE, LLM_API_KEY,
+    LLM_TRIGGER_SCORE, LLM_PROVIDER, LLM_API_KEY, LLM_MODEL,
     TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, NOTIFY_ON_STATES,
 )
 from market_analyzer import MarketAnalyzer, MarketSignal
@@ -44,10 +45,23 @@ class Notifier:
 
 # ──────────────────────────────────────────────────────────────
 class LLMJudge:
-    """리스크 스코어가 애매한 상황에서 Claude에게 판단 요청."""
+    """리스크 스코어가 애매한 상황에서 LLM에게 판단 요청. (Anthropic / OpenAI 지원)"""
+
+    DEFAULT_MODELS = {
+        "anthropic": "claude-sonnet-4-20250514",
+        "openai": "gpt-4o",
+    }
 
     def __init__(self):
-        self.client = anthropic.Anthropic(api_key=LLM_API_KEY)
+        self.provider = LLM_PROVIDER.lower()
+        self.model = LLM_MODEL or self.DEFAULT_MODELS.get(self.provider, "gpt-4o")
+
+        if self.provider == "anthropic":
+            self.client = anthropic.Anthropic(api_key=LLM_API_KEY)
+        elif self.provider == "openai":
+            self.client = openai.OpenAI(api_key=LLM_API_KEY)
+        else:
+            raise ValueError(f"지원하지 않는 LLM provider: {self.provider} (anthropic 또는 openai)")
 
     def judge(self, signal: MarketSignal, current_price: float) -> str:
         """
@@ -79,19 +93,30 @@ RSI: {signal.rsi:.1f}
 예시: WIDEN|ATR이 평균의 2.8배로 단기 급등 가능성 높음
 """
         try:
-            resp = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=100,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            raw = resp.content[0].text.strip()
+            raw = self._call(prompt)
             action = raw.split("|")[0].strip().upper()
             if action not in ("MAINTAIN", "WIDEN", "PAUSE", "STOP"):
                 return "MAINTAIN"
             return action
         except Exception as e:
-            print(f"[LLMJudge] 오류: {e}")
+            print(f"[LLMJudge] 오류 ({self.provider}): {e}")
             return "MAINTAIN"
+
+    def _call(self, prompt: str) -> str:
+        if self.provider == "anthropic":
+            resp = self.client.messages.create(
+                model=self.model,
+                max_tokens=100,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return resp.content[0].text.strip()
+        else:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=100,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return resp.choices[0].message.content.strip()
 
 
 # ──────────────────────────────────────────────────────────────

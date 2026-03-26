@@ -52,7 +52,8 @@ Edit `files/config.py`:
 OKX_API_KEY    = "your_api_key"
 OKX_SECRET_KEY = "your_secret_key"
 OKX_PASSPHRASE = "your_passphrase"
-LLM_API_KEY    = "your_anthropic_key"
+LLM_PROVIDER   = "anthropic"       # "anthropic" or "openai"
+LLM_API_KEY    = "your_api_key"
 
 # Optional (Telegram alerts)
 TELEGRAM_TOKEN   = "your_bot_token"
@@ -86,6 +87,9 @@ DEMO_MODE    = True  # True = paper trading, False = live trading
 | `BOLLINGER_STD` | `2.0` | Bollinger Bands std dev multiplier |
 | `VOLUME_SPIKE_MULTIPLIER` | `5.0` | Volume spike threshold multiplier |
 | `MAX_LOSS_PERCENT` | `15.0` | Stop-loss threshold (% from entry) |
+| `LLM_PROVIDER` | `anthropic` | LLM provider (`anthropic` / `openai`) |
+| `LLM_API_KEY` | - | LLM API key |
+| `LLM_MODEL` | auto | Model name (defaults: `claude-sonnet-4-20250514` / `gpt-4o`) |
 | `LLM_TRIGGER_SCORE` | `55` | Minimum score to trigger LLM judgment |
 
 ## Run

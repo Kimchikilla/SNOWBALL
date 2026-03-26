@@ -52,7 +52,8 @@ pip install -r files/requirements.txt
 OKX_API_KEY    = "your_api_key"
 OKX_SECRET_KEY = "your_secret_key"
 OKX_PASSPHRASE = "your_passphrase"
-LLM_API_KEY    = "your_anthropic_key"
+LLM_PROVIDER   = "anthropic"       # "anthropic" 또는 "openai"
+LLM_API_KEY    = "your_api_key"
 
 # 선택 (텔레그램 알림)
 TELEGRAM_TOKEN   = "your_bot_token"
@@ -86,6 +87,9 @@ DEMO_MODE    = True  # True = 모의거래, False = 실거래
 | `BOLLINGER_STD` | `2.0` | 볼린저밴드 표준편차 배수 |
 | `VOLUME_SPIKE_MULTIPLIER` | `5.0` | 거래량 급등 판단 배수 |
 | `MAX_LOSS_PERCENT` | `15.0` | 손절 기준 (진입가 대비 %) |
+| `LLM_PROVIDER` | `anthropic` | LLM 제공자 (`anthropic` / `openai`) |
+| `LLM_API_KEY` | - | LLM API 키 |
+| `LLM_MODEL` | 자동 | 모델명 (비워두면 기본값: `claude-sonnet-4-20250514` / `gpt-4o`) |
 | `LLM_TRIGGER_SCORE` | `55` | LLM 판단 요청 최소 점수 |
 
 ## 실행
