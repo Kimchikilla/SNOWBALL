@@ -1,4 +1,4 @@
-<svg width="100%" viewBox="0 0 720 820" xmlns="http://www.w3.org/2000/svg">
+<svg width="100%" viewBox="0 0 760 860" xmlns="http://www.w3.org/2000/svg">
 <defs>
   <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
     <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -16,177 +16,180 @@
 </defs>
 
 <!-- Background -->
-<rect width="720" height="820" rx="12" fill="#0d1117"/>
+<rect width="760" height="860" rx="12" fill="#0d1117"/>
 
-<!-- ═══ Layer 1: Data ═══ -->
-<rect x="20" y="16" width="680" height="72" rx="10" fill="#0c447c" stroke="#85b7eb" stroke-width="0.5"/>
-<text x="36" y="38" class="title">Data Layer</text>
-<text x="36" y="52" class="subtitle">OKX Public API (REST)</text>
+<!-- ═══ Layer 1: 데이터 ═══ -->
+<rect x="40" y="16" width="680" height="72" rx="10" fill="#0c447c" stroke="#85b7eb" stroke-width="0.5"/>
+<text x="56" y="38" class="title">데이터 레이어</text>
+<text x="56" y="52" class="subtitle">OKX Public API (REST)</text>
 
-<rect x="36" y="58" width="120" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
-<text x="96" y="69" text-anchor="middle" dominant-baseline="central" class="badge">Candles (1m)</text>
+<rect x="56" y="58" width="130" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="121" y="69" text-anchor="middle" dominant-baseline="central" class="badge">캔들 (1분봉)</text>
 
-<rect x="168" y="58" width="120" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
-<text x="228" y="69" text-anchor="middle" dominant-baseline="central" class="badge">Ticker / Price</text>
+<rect x="198" y="58" width="120" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="258" y="69" text-anchor="middle" dominant-baseline="central" class="badge">현재가 조회</text>
 
-<rect x="300" y="58" width="120" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
-<text x="360" y="69" text-anchor="middle" dominant-baseline="central" class="badge">Fills History</text>
+<rect x="330" y="58" width="120" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="390" y="69" text-anchor="middle" dominant-baseline="central" class="badge">체결 내역</text>
 
-<rect x="432" y="58" width="140" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
-<text x="502" y="69" text-anchor="middle" dominant-baseline="central" class="badge">Grid Bot Status</text>
+<rect x="462" y="58" width="140" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="532" y="69" text-anchor="middle" dominant-baseline="central" class="badge">그리드봇 상태</text>
 
-<!-- Arrow: Data → Analyzer -->
-<line x1="360" y1="88" x2="360" y2="108" class="arrow-line" stroke="#85b7eb"/>
+<!-- Arrow: 데이터 → 분석 -->
+<line x1="380" y1="88" x2="380" y2="108" class="arrow-line" stroke="#85b7eb"/>
 
-<!-- ═══ Layer 2: Analysis ═══ -->
-<rect x="20" y="108" width="680" height="100" rx="10" fill="#1a1a2e" stroke="#7c3aed" stroke-width="0.5"/>
-<text x="36" y="130" class="title" fill="#c4b5fd">Analysis Layer</text>
-<text x="36" y="144" class="subtitle" fill="#a78bfa">market_analyzer.py — Risk Score + Trend Detection</text>
+<!-- ═══ Layer 2: 분석 ═══ -->
+<rect x="40" y="108" width="680" height="100" rx="10" fill="#1a1a2e" stroke="#7c3aed" stroke-width="0.5"/>
+<text x="56" y="130" class="title" fill="#c4b5fd">분석 레이어</text>
+<text x="56" y="144" class="subtitle" fill="#a78bfa">market_analyzer.py — 리스크 스코어 + 추세 감지</text>
 
-<rect x="36" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
-<text x="86" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">ATR</text>
-<text x="86" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">30pts max</text>
+<rect x="56" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
+<text x="106" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">ATR</text>
+<text x="106" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">최대 30점</text>
 
-<rect x="148" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
-<text x="198" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">RSI</text>
-<text x="198" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">25pts max</text>
+<rect x="168" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
+<text x="218" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">RSI</text>
+<text x="218" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">최대 25점</text>
 
-<rect x="260" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
-<text x="310" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">Bollinger</text>
-<text x="310" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">25pts max</text>
+<rect x="280" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
+<text x="330" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">볼린저밴드</text>
+<text x="330" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">최대 25점</text>
 
-<rect x="372" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
-<text x="422" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">Volume</text>
-<text x="422" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">20pts max</text>
+<rect x="392" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
+<text x="442" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">거래량</text>
+<text x="442" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">최대 20점</text>
 
-<rect x="484" y="155" width="100" height="40" rx="6" fill="#1b4332" stroke="#2dd4bf" stroke-width="0.5"/>
-<text x="534" y="171" text-anchor="middle" class="agent-label" fill="#2dd4bf">EMA 9/21</text>
-<text x="534" y="183" text-anchor="middle" class="agent-sub" fill="#5eead4">Trend Dir</text>
+<rect x="504" y="155" width="100" height="40" rx="6" fill="#1b4332" stroke="#2dd4bf" stroke-width="0.5"/>
+<text x="554" y="171" text-anchor="middle" class="agent-label" fill="#2dd4bf">EMA 9/21</text>
+<text x="554" y="183" text-anchor="middle" class="agent-sub" fill="#5eead4">추세 방향</text>
 
-<rect x="596" y="155" width="88" height="40" rx="6" fill="#1b4332" stroke="#2dd4bf" stroke-width="0.5"/>
-<text x="640" y="171" text-anchor="middle" class="agent-label" fill="#2dd4bf">ADX</text>
-<text x="640" y="183" text-anchor="middle" class="agent-sub" fill="#5eead4">Strength</text>
+<rect x="616" y="155" width="88" height="40" rx="6" fill="#1b4332" stroke="#2dd4bf" stroke-width="0.5"/>
+<text x="660" y="171" text-anchor="middle" class="agent-label" fill="#2dd4bf">ADX</text>
+<text x="660" y="183" text-anchor="middle" class="agent-sub" fill="#5eead4">추세 강도</text>
 
-<!-- Arrow: Analyzer → Decision -->
-<line x1="360" y1="208" x2="360" y2="228" class="arrow-line" stroke="#a78bfa"/>
+<!-- Arrow: 분석 → 합의 -->
+<line x1="380" y1="208" x2="380" y2="228" class="arrow-line" stroke="#a78bfa"/>
 
-<!-- ═══ Layer 3: Multi-Agent Consensus ═══ -->
-<rect x="20" y="228" width="680" height="220" rx="10" fill="#1c1917" stroke="#f59e0b" stroke-width="0.5"/>
-<text x="36" y="250" class="title" fill="#fcd34d">Multi-Agent Consensus</text>
-<text x="36" y="264" class="subtitle" fill="#fbbf24">multi_agent.py — 4 Specialists + Coordinator</text>
+<!-- ═══ Layer 3: 멀티 에이전트 합의 ═══ -->
+<rect x="40" y="228" width="680" height="220" rx="10" fill="#1c1917" stroke="#f59e0b" stroke-width="0.5"/>
+<text x="56" y="250" class="title" fill="#fcd34d">멀티 에이전트 합의</text>
+<text x="56" y="264" class="subtitle" fill="#fbbf24">multi_agent.py — 전문가 4명 + 조율자</text>
 
-<!-- 4 Agents -->
-<rect x="36" y="278" width="145" height="60" rx="8" fill="#7c2d12" stroke="#f97316" stroke-width="0.5"/>
-<text x="108" y="300" text-anchor="middle" class="agent-label">Technical Analyst</text>
-<text x="108" y="314" text-anchor="middle" class="agent-sub">EMA, ATR, BB, RSI</text>
-<text x="108" y="326" text-anchor="middle" class="agent-sub">chart patterns</text>
+<!-- 4 에이전트 -->
+<rect x="56" y="278" width="145" height="60" rx="8" fill="#7c2d12" stroke="#f97316" stroke-width="0.5"/>
+<text x="128" y="300" text-anchor="middle" class="agent-label">기술적 분석가</text>
+<text x="128" y="314" text-anchor="middle" class="agent-sub">EMA, ATR, BB, RSI</text>
+<text x="128" y="326" text-anchor="middle" class="agent-sub">차트 패턴 분석</text>
 
-<rect x="193" y="278" width="145" height="60" rx="8" fill="#7c2d12" stroke="#f97316" stroke-width="0.5"/>
-<text x="265" y="300" text-anchor="middle" class="agent-label">Sentiment Analyst</text>
-<text x="265" y="314" text-anchor="middle" class="agent-sub">volume, panic/FOMO</text>
-<text x="265" y="326" text-anchor="middle" class="agent-sub">market psychology</text>
+<rect x="213" y="278" width="145" height="60" rx="8" fill="#7c2d12" stroke="#f97316" stroke-width="0.5"/>
+<text x="285" y="300" text-anchor="middle" class="agent-label">감성 분석가</text>
+<text x="285" y="314" text-anchor="middle" class="agent-sub">거래량, 패닉/FOMO</text>
+<text x="285" y="326" text-anchor="middle" class="agent-sub">시장 심리 분석</text>
 
-<rect x="350" y="278" width="145" height="60" rx="8" fill="#991b1b" stroke="#ef4444" stroke-width="0.8"/>
-<text x="422" y="300" text-anchor="middle" class="agent-label">Risk Manager</text>
-<text x="422" y="314" text-anchor="middle" class="agent-sub">capital preservation</text>
-<text x="422" y="326" text-anchor="middle" style="font-size:9px;font-weight:700;fill:#fca5a5">2x VOTE WEIGHT</text>
+<rect x="370" y="278" width="145" height="60" rx="8" fill="#991b1b" stroke="#ef4444" stroke-width="0.8"/>
+<text x="442" y="300" text-anchor="middle" class="agent-label">리스크 관리자</text>
+<text x="442" y="314" text-anchor="middle" class="agent-sub">자본 보전 최우선</text>
+<text x="442" y="326" text-anchor="middle" style="font-size:9px;font-weight:700;fill:#fca5a5">투표 가중치 2배</text>
 
-<rect x="507" y="278" width="145" height="60" rx="8" fill="#7c2d12" stroke="#f97316" stroke-width="0.5"/>
-<text x="579" y="300" text-anchor="middle" class="agent-label">Macro Strategist</text>
-<text x="579" y="314" text-anchor="middle" class="agent-sub">trend cycle, ADX</text>
-<text x="579" y="326" text-anchor="middle" class="agent-sub">big picture</text>
+<rect x="527" y="278" width="145" height="60" rx="8" fill="#7c2d12" stroke="#f97316" stroke-width="0.5"/>
+<text x="599" y="300" text-anchor="middle" class="agent-label">거시 전략가</text>
+<text x="599" y="314" text-anchor="middle" class="agent-sub">추세 사이클, ADX</text>
+<text x="599" y="326" text-anchor="middle" class="agent-sub">큰 그림 판단</text>
 
-<!-- Arrows to Coordinator -->
-<line x1="108" y1="338" x2="340" y2="380" class="arrow-line" stroke="#f59e0b"/>
-<line x1="265" y1="338" x2="340" y2="380" class="arrow-line" stroke="#f59e0b"/>
-<line x1="422" y1="338" x2="380" y2="380" class="arrow-line" stroke="#ef4444" stroke-width="2"/>
-<line x1="579" y1="338" x2="380" y2="380" class="arrow-line" stroke="#f59e0b"/>
+<!-- 조율자로 화살표 -->
+<line x1="128" y1="338" x2="360" y2="380" class="arrow-line" stroke="#f59e0b"/>
+<line x1="285" y1="338" x2="360" y2="380" class="arrow-line" stroke="#f59e0b"/>
+<line x1="442" y1="338" x2="400" y2="380" class="arrow-line" stroke="#ef4444" stroke-width="2"/>
+<line x1="599" y1="338" x2="400" y2="380" class="arrow-line" stroke="#f59e0b"/>
 
-<!-- Coordinator -->
-<rect x="260" y="375" width="200" height="50" rx="10" fill="#92400e" stroke="#fbbf24" stroke-width="1"/>
-<text x="360" y="396" text-anchor="middle" style="font-size:13px;font-weight:700;fill:#fef3c7">Coordinator</text>
-<text x="360" y="412" text-anchor="middle" class="agent-sub" fill="#fcd34d">majority + defense bias</text>
+<!-- 조율자 -->
+<rect x="280" y="375" width="200" height="50" rx="10" fill="#92400e" stroke="#fbbf24" stroke-width="1"/>
+<text x="380" y="396" text-anchor="middle" style="font-size:13px;font-weight:700;fill:#fef3c7">조율자</text>
+<text x="380" y="412" text-anchor="middle" class="agent-sub" fill="#fcd34d">다수결 + 방어 편향</text>
 
-<!-- Arrow: Coordinator → Decision -->
-<line x1="360" y1="425" x2="360" y2="458" class="arrow-line" stroke="#fbbf24"/>
+<!-- Arrow: 조율자 → 결정 -->
+<line x1="380" y1="425" x2="380" y2="458" class="arrow-line" stroke="#fbbf24"/>
 
-<!-- ═══ Layer 4: Decision Engine ═══ -->
-<rect x="20" y="458" width="680" height="90" rx="10" fill="#0f172a" stroke="#3b82f6" stroke-width="0.5"/>
-<text x="36" y="480" class="title" fill="#93c5fd">Decision Engine</text>
-<text x="36" y="494" class="subtitle" fill="#60a5fa">main_agent.py — State Machine + Trend Override</text>
+<!-- ═══ Layer 4: 의사결정 ═══ -->
+<rect x="40" y="458" width="680" height="90" rx="10" fill="#0f172a" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="56" y="480" class="title" fill="#93c5fd">의사결정 엔진</text>
+<text x="56" y="494" class="subtitle" fill="#60a5fa">main_agent.py — 상태 머신 + 추세 오버라이드</text>
 
-<rect x="36" y="504" width="90" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
-<text x="81" y="519" text-anchor="middle" class="action-text" fill="#22c55e">MAINTAIN</text>
+<rect x="56" y="504" width="80" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="96" y="519" text-anchor="middle" class="action-text" fill="#22c55e">유지</text>
 
-<rect x="138" y="504" width="75" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
-<text x="175" y="519" text-anchor="middle" class="action-text" fill="#eab308">WIDEN</text>
+<rect x="148" y="504" width="80" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="188" y="519" text-anchor="middle" class="action-text" fill="#eab308">확대</text>
 
-<rect x="225" y="504" width="75" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
-<text x="262" y="519" text-anchor="middle" class="action-text" fill="#f97316">PAUSE</text>
+<rect x="240" y="504" width="80" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="280" y="519" text-anchor="middle" class="action-text" fill="#f97316">일시정지</text>
 
-<rect x="312" y="504" width="65" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
-<text x="344" y="519" text-anchor="middle" class="action-text" fill="#ef4444">STOP</text>
+<rect x="332" y="504" width="70" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="367" y="519" text-anchor="middle" class="action-text" fill="#ef4444">청산</text>
 
-<rect x="389" y="504" width="80" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
-<text x="429" y="519" text-anchor="middle" class="action-text" fill="#eab308">REDUCE</text>
+<rect x="414" y="504" width="80" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="454" y="519" text-anchor="middle" class="action-text" fill="#eab308">축소</text>
 
-<rect x="481" y="504" width="90" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
-<text x="526" y="519" text-anchor="middle" class="action-text" fill="#2dd4bf">SHIFT UP</text>
+<rect x="506" y="504" width="95" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="553" y="519" text-anchor="middle" class="action-text" fill="#2dd4bf">위로 시프트</text>
 
-<rect x="583" y="504" width="100" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
-<text x="633" y="519" text-anchor="middle" class="action-text" fill="#2dd4bf">SHIFT DOWN</text>
+<rect x="613" y="504" width="95" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="660" y="519" text-anchor="middle" class="action-text" fill="#2dd4bf">아래 시프트</text>
 
-<!-- Arrow: Decision → Execution -->
-<line x1="360" y1="548" x2="360" y2="568" class="arrow-line" stroke="#3b82f6"/>
+<!-- Arrow: 결정 → 실행 -->
+<line x1="380" y1="548" x2="380" y2="568" class="arrow-line" stroke="#3b82f6"/>
 
-<!-- ═══ Layer 5: Execution ═══ -->
-<rect x="20" y="568" width="680" height="72" rx="10" fill="#064e3b" stroke="#34d399" stroke-width="0.5"/>
-<text x="36" y="590" class="title" fill="#a7f3d0">Execution Layer</text>
-<text x="36" y="604" class="subtitle" fill="#6ee7b7">grid_controller.py — OKX Trading Bot API</text>
+<!-- ═══ Layer 5: 실행 ═══ -->
+<rect x="40" y="568" width="680" height="72" rx="10" fill="#064e3b" stroke="#34d399" stroke-width="0.5"/>
+<text x="56" y="590" class="title" fill="#a7f3d0">실행 레이어</text>
+<text x="56" y="604" class="subtitle" fill="#6ee7b7">grid_controller.py — OKX 그리드봇 API</text>
 
-<rect x="36" y="612" width="130" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
-<text x="101" y="622" text-anchor="middle" dominant-baseline="central" class="badge">Start / Stop Grid</text>
+<rect x="56" y="612" width="120" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="116" y="622" text-anchor="middle" dominant-baseline="central" class="badge">시작 / 중지</text>
 
-<rect x="178" y="612" width="120" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
-<text x="238" y="622" text-anchor="middle" dominant-baseline="central" class="badge">Widen Grid</text>
+<rect x="188" y="612" width="120" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="248" y="622" text-anchor="middle" dominant-baseline="central" class="badge">간격 확대</text>
 
-<rect x="310" y="612" width="120" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
-<text x="370" y="622" text-anchor="middle" dominant-baseline="central" class="badge">Shift Center</text>
+<rect x="320" y="612" width="120" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="380" y="622" text-anchor="middle" dominant-baseline="central" class="badge">중심 이동</text>
 
-<rect x="442" y="612" width="130" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
-<text x="507" y="622" text-anchor="middle" dominant-baseline="central" class="badge">Reduce Exposure</text>
+<rect x="452" y="612" width="130" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="517" y="622" text-anchor="middle" dominant-baseline="central" class="badge">노출 축소</text>
 
-<rect x="584" y="612" width="100" height="20" rx="5" fill="#450a0a" stroke="#ef4444" stroke-width="0.5"/>
-<text x="634" y="622" text-anchor="middle" dominant-baseline="central" style="font-size:11px;font-weight:500;fill:#fca5a5">Emergency</text>
+<rect x="594" y="612" width="110" height="20" rx="5" fill="#450a0a" stroke="#ef4444" stroke-width="0.5"/>
+<text x="649" y="622" text-anchor="middle" dominant-baseline="central" style="font-size:11px;font-weight:500;fill:#fca5a5">긴급 청산</text>
 
-<!-- Arrow: Execution → Notification -->
-<line x1="360" y1="640" x2="360" y2="660" class="arrow-line" stroke="#34d399"/>
+<!-- Arrow: 실행 → 알림 -->
+<line x1="380" y1="640" x2="380" y2="660" class="arrow-line" stroke="#34d399"/>
 
-<!-- ═══ Layer 6: Notification ═══ -->
-<rect x="20" y="660" width="680" height="72" rx="10" fill="#1e1b4b" stroke="#818cf8" stroke-width="0.5"/>
-<text x="36" y="682" class="title" fill="#c7d2fe">Notification Layer</text>
-<text x="36" y="696" class="subtitle" fill="#a5b4fc">Telegram Alerts + Daily Report</text>
+<!-- ═══ Layer 6: 알림 ═══ -->
+<rect x="40" y="660" width="680" height="72" rx="10" fill="#1e1b4b" stroke="#818cf8" stroke-width="0.5"/>
+<text x="56" y="682" class="title" fill="#c7d2fe">알림 레이어</text>
+<text x="56" y="696" class="subtitle" fill="#a5b4fc">텔레그램 알림 + 일일 리포트</text>
 
-<rect x="36" y="704" width="130" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
-<text x="101" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">Trade Fills Alert</text>
+<rect x="56" y="704" width="140" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
+<text x="126" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">매수/매도 체결</text>
 
-<rect x="178" y="704" width="150" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
-<text x="253" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">State Change Alert</text>
+<rect x="208" y="704" width="140" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
+<text x="278" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">상태 변화 알림</text>
 
-<rect x="340" y="704" width="160" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
-<text x="420" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">Consensus Report</text>
+<rect x="360" y="704" width="150" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
+<text x="435" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">에이전트 합의 리포트</text>
 
-<rect x="512" y="704" width="140" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
-<text x="582" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">Daily PnL Report</text>
+<rect x="522" y="704" width="140" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
+<text x="592" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">일일 손익 리포트</text>
 
-<!-- ═══ Loop indicator ═══ -->
-<rect x="250" y="752" width="220" height="36" rx="18" fill="#1f2937" stroke="#6b7280" stroke-width="0.5"/>
-<text x="360" y="770" text-anchor="middle" dominant-baseline="central" style="font-size:12px;font-weight:600;fill:#9ca3af">Loop every 2 min</text>
+<!-- ═══ 루프 표시 ═══ -->
+<rect x="270" y="752" width="220" height="36" rx="18" fill="#1f2937" stroke="#6b7280" stroke-width="0.5"/>
+<text x="380" y="770" text-anchor="middle" dominant-baseline="central" style="font-size:12px;font-weight:600;fill:#9ca3af">2분 간격 루프</text>
 
-<!-- Loop arrow -->
-<path d="M 690 770 Q 710 770 710 400 Q 710 120 690 120" fill="none" stroke="#4b5563" stroke-width="1" stroke-dasharray="4 3"/>
-<path d="M 690 120 L 686 128 M 690 120 L 694 128" fill="none" stroke="#4b5563" stroke-width="1"/>
+<!-- 루프 화살표 (viewBox 안에 들어오도록) -->
+<path d="M 490 770 Q 510 770 510 760 L 510 130 Q 510 110 490 110" fill="none" stroke="#4b5563" stroke-width="1.2" stroke-dasharray="4 3"/>
+<polygon points="490,106 498,110 490,114" fill="#4b5563"/>
 
-<!-- ═══ Footer ═══ -->
-<text x="360" y="808" text-anchor="middle" style="font-size:10px;fill:#4b5563">Snowball — OKX Adaptive Grid Trading Agent</text>
+<path d="M 270 770 Q 250 770 250 760 L 250 130 Q 250 110 270 110" fill="none" stroke="#4b5563" stroke-width="1.2" stroke-dasharray="4 3"/>
+<polygon points="270,106 262,110 270,114" fill="#4b5563"/>
+
+<!-- ═══ 푸터 ═══ -->
+<text x="380" y="810" text-anchor="middle" style="font-size:10px;fill:#4b5563">Snowball — OKX 적응형 그리드 트레이딩 에이전트</text>
 </svg>
