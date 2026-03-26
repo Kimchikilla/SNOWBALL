@@ -310,17 +310,16 @@ class GridAgent:
 # ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import os
-    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    from menu import main_menu, clear
 
-    # --setup 플래그이거나 .env 없으면 셋업 위저드 실행
-    if "--setup" in sys.argv or not os.path.exists(env_path):
-        from setup import run_setup
-        run_setup()
-        if "--setup" in sys.argv:
-            sys.exit(0)
-        # 셋업 후 config 다시 로드
-        print("\n설정 완료! 에이전트를 시작합니다...\n")
-        os.execv(sys.executable, [sys.executable] + [__file__])
+    result = main_menu()
 
-    agent = GridAgent()
-    agent.run()
+    if result == "start":
+        clear()
+        # 메뉴에서 설정 변경 가능하므로 프로세스 재시작으로 config 새로 로드
+        src_dir = os.path.dirname(os.path.abspath(__file__))
+        os.execv(sys.executable, [
+            sys.executable, "-c",
+            f"import sys; sys.path.insert(0, r'{src_dir}'); "
+            f"from main_agent import GridAgent; GridAgent().run()"
+        ])
