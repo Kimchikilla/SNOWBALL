@@ -12,13 +12,19 @@ _env_path = os.path.join(os.path.dirname(__file__), ".env")
 def _load_env():
     if not os.path.exists(_env_path):
         return
-    with open(_env_path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
+    try:
+        with open(_env_path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, _, value = line.partition("=")
+                    os.environ.setdefault(key.strip(), value.strip())
+                except (ValueError, UnicodeDecodeError):
+                    continue
+    except (OSError, UnicodeDecodeError) as e:
+        print(f"  [config] .env 파일 읽기 오류: {e}", file=sys.stderr)
 
 _load_env()
 
@@ -26,10 +32,16 @@ def _env(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
 
 def _env_float(key: str, default: float = 0.0) -> float:
-    return float(_env(key, str(default)))
+    try:
+        return float(_env(key, str(default)))
+    except (ValueError, TypeError):
+        return default
 
 def _env_int(key: str, default: int = 0) -> int:
-    return int(_env(key, str(default)))
+    try:
+        return int(_env(key, str(default)))
+    except (ValueError, TypeError):
+        return default
 
 def _env_bool(key: str, default: bool = True) -> bool:
     return _env(key, str(default)).lower() in ("true", "1", "yes")

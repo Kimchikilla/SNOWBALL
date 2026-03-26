@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 from typing import Optional
 import httpx
 
+_MAX_RETRIES = 3
+_RETRY_DELAY = 2
+
 from config import (
     OKX_API_KEY, OKX_SECRET_KEY, OKX_PASSPHRASE,
     OKX_BASE_URL, DEMO_MODE,
@@ -31,6 +34,18 @@ class GridController:
         self.bot_id: Optional[str] = None      # 실행 중인 봇 ID
         self.paused: bool = False
         self.client = httpx.Client(base_url=OKX_BASE_URL, timeout=10)
+
+    # ─── 유틸리티 ─────────────────────────────────────────────
+
+    @staticmethod
+    def _safe_float(value, default: float = 0.0) -> float:
+        """Safely parse a float value from an API response."""
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return default
 
     # ─── 공개 액션 메서드 ────────────────────────────────────
 
@@ -58,9 +73,16 @@ class GridController:
         resp = self._post("/api/v5/tradingBot/grid/order-algo", body)
 
         if resp.get("code") == "0":
-            self.bot_id = resp["data"][0]["algoId"]
-            self.paused = False
-            self._log(f"그리드봇 시작 | bot_id={self.bot_id} | 범위={lower}~{upper} | {count}개 그리드")
+            try:
+                data = resp.get("data")
+                if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                    self.bot_id = data[0].get("algoId")
+                else:
+                    self._log(f"그리드봇 시작 응답 구조 이상: {resp}", level="ERROR")
+                self.paused = False
+                self._log(f"그리드봇 시작 | bot_id={self.bot_id} | 범위={lower}~{upper} | {count}개 그리드")
+            except Exception as e:
+                self._log(f"그리드봇 시작 응답 파싱 실패: {e}", level="ERROR")
         else:
             self._log(f"그리드봇 시작 실패: {resp}", level="ERROR")
 
@@ -144,67 +166,104 @@ class GridController:
         if not self.bot_id:
             return {"status": "no_bot"}
 
-        resp = self._get(
-            "/api/v5/tradingBot/grid/orders-algo-details",
-            params={"algoId": self.bot_id, "algoOrdType": "grid"}
-        )
-        return resp
+        try:
+            resp = self._get(
+                "/api/v5/tradingBot/grid/orders-algo-details",
+                params={"algoId": self.bot_id, "algoOrdType": "grid"}
+            )
+            if not isinstance(resp, dict):
+                return {"code": "-1", "msg": "unexpected response type"}
+            return resp
+        except Exception as e:
+            self._log(f"get_bot_status 실패: {e}", level="ERROR")
+            return {"code": "-1", "msg": str(e)}
 
     def get_recent_fills(self, limit: int = 20) -> list[dict]:
         """최근 체결 내역 조회."""
-        resp = self._get(
-            "/api/v5/trade/fills-history",
-            params={"instId": SYMBOL, "limit": str(limit)}
-        )
-        return resp.get("data", [])
+        try:
+            resp = self._get(
+                "/api/v5/trade/fills-history",
+                params={"instId": SYMBOL, "limit": str(limit)}
+            )
+            data = resp.get("data", [])
+            if not isinstance(data, list):
+                self._log(f"get_recent_fills 응답 'data' 타입 이상: {type(data)}", level="ERROR")
+                return []
+            return data
+        except Exception as e:
+            self._log(f"get_recent_fills 실패: {e}", level="ERROR")
+            return []
 
     def get_grid_pnl(self) -> dict:
         """그리드봇 수익 정보 조회."""
         if not self.bot_id:
             return {}
-        resp = self._get(
-            "/api/v5/tradingBot/grid/orders-algo-details",
-            params={"algoId": self.bot_id, "algoOrdType": "grid"}
-        )
-        if resp.get("code") == "0" and resp.get("data"):
-            data = resp["data"][0]
-            return {
-                "grid_profit": float(data.get("gridProfit", 0)),
-                "float_profit": float(data.get("floatProfit", 0)),
-                "total_pnl": float(data.get("totalPnl", 0)),
-                "annualized_rate": float(data.get("annualizedRate", 0)),
-                "investment": float(data.get("investment", 0)),
-            }
+        try:
+            resp = self._get(
+                "/api/v5/tradingBot/grid/orders-algo-details",
+                params={"algoId": self.bot_id, "algoOrdType": "grid"}
+            )
+            if resp.get("code") == "0" and resp.get("data"):
+                data_list = resp.get("data")
+                if not isinstance(data_list, list) or len(data_list) == 0:
+                    return {}
+                data = data_list[0]
+                if not isinstance(data, dict):
+                    return {}
+                return {
+                    "grid_profit": self._safe_float(data.get("gridProfit")),
+                    "float_profit": self._safe_float(data.get("floatProfit")),
+                    "total_pnl": self._safe_float(data.get("totalPnl")),
+                    "annualized_rate": self._safe_float(data.get("annualizedRate")),
+                    "investment": self._safe_float(data.get("investment")),
+                }
+        except Exception as e:
+            self._log(f"get_grid_pnl 실패: {e}", level="ERROR")
         return {}
 
     # ─── 주문 관리 ───────────────────────────────────────────
 
     def _cancel_pending_orders(self) -> dict:
         """미체결 주문 전체 취소."""
-        # 미체결 주문 목록 조회
-        orders_resp = self._get(
-            "/api/v5/trade/orders-pending",
-            params={"instId": SYMBOL, "ordType": "limit"}
-        )
-        orders = orders_resp.get("data", [])
-        if not orders:
-            return {"status": "no_pending_orders"}
+        try:
+            orders_resp = self._get(
+                "/api/v5/trade/orders-pending",
+                params={"instId": SYMBOL, "ordType": "limit"}
+            )
+            orders = orders_resp.get("data", [])
+            if not isinstance(orders, list):
+                self._log(f"미체결 주문 조회 응답 구조 이상: {type(orders)}", level="ERROR")
+                return {"status": "error", "msg": "unexpected response structure"}
+            if not orders:
+                return {"status": "no_pending_orders"}
 
-        cancel_list = [{"instId": SYMBOL, "ordId": o["ordId"]} for o in orders]
-        # 최대 20개씩 배치 취소
-        for i in range(0, len(cancel_list), 20):
-            batch = cancel_list[i:i+20]
-            self._post("/api/v5/trade/cancel-batch-orders", batch)
+            cancel_list = []
+            for o in orders:
+                if isinstance(o, dict) and "ordId" in o:
+                    cancel_list.append({"instId": SYMBOL, "ordId": o["ordId"]})
+            if not cancel_list:
+                return {"status": "no_pending_orders"}
 
-        self._log(f"미체결 주문 {len(orders)}개 취소 완료")
-        return {"status": "cancelled", "count": len(orders)}
+            for i in range(0, len(cancel_list), 20):
+                batch = cancel_list[i:i+20]
+                self._post("/api/v5/trade/cancel-batch-orders", batch)
+
+            self._log(f"미체결 주문 {len(cancel_list)}개 취소 완료")
+            return {"status": "cancelled", "count": len(cancel_list)}
+        except Exception as e:
+            self._log(f"미체결 주문 취소 실패: {e}", level="ERROR")
+            return {"status": "error", "msg": str(e)}
 
     # ─── OKX API 서명 & 호출 ─────────────────────────────────
 
     def _sign(self, timestamp: str, method: str, path: str, body: str = "") -> str:
-        msg    = timestamp + method + path + body
-        digest = hmac.new(OKX_SECRET_KEY.encode(), msg.encode(), hashlib.sha256).digest()
-        return base64.b64encode(digest).decode()
+        try:
+            msg    = timestamp + method + path + body
+            digest = hmac.new(OKX_SECRET_KEY.encode(), msg.encode(), hashlib.sha256).digest()
+            return base64.b64encode(digest).decode()
+        except Exception as e:
+            self._log(f"HMAC 서명 실패 (키가 유효하지 않을 수 있음): {e}", level="ERROR")
+            raise
 
     def _headers(self, method: str, path: str, body: str = "") -> dict:
         ts  = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
@@ -220,25 +279,49 @@ class GridController:
 
     def _post(self, path: str, body: dict) -> dict:
         body_str = json.dumps(body)
-        headers  = self._headers("POST", path, body_str)
-        try:
-            r = self.client.post(path, content=body_str, headers=headers)
-            return r.json()
-        except Exception as e:
-            self._log(f"POST {path} 실패: {e}", level="ERROR")
-            return {"code": "-1", "msg": str(e)}
+        last_err = None
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                headers = self._headers("POST", path, body_str)
+                r = self.client.post(path, content=body_str, headers=headers)
+                try:
+                    return r.json()
+                except (json.JSONDecodeError, ValueError) as e:
+                    self._log(f"POST {path} JSON 파싱 실패 (시도 {attempt}/{_MAX_RETRIES}): {e}", level="ERROR")
+                    last_err = e
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+                self._log(f"POST {path} 네트워크 오류 (시도 {attempt}/{_MAX_RETRIES}): {e}", level="ERROR")
+                last_err = e
+            except Exception as e:
+                self._log(f"POST {path} 실패: {e}", level="ERROR")
+                return {"code": "-1", "msg": str(e)}
+            if attempt < _MAX_RETRIES:
+                time.sleep(_RETRY_DELAY)
+        return {"code": "-1", "msg": f"max retries exceeded: {last_err}"}
 
     def _get(self, path: str, params: dict = None) -> dict:
         query = ""
         if params:
             query = "?" + "&".join(f"{k}={v}" for k, v in params.items())
-        headers = self._headers("GET", path + query)
-        try:
-            r = self.client.get(path, params=params, headers=headers)
-            return r.json()
-        except Exception as e:
-            self._log(f"GET {path} 실패: {e}", level="ERROR")
-            return {"code": "-1", "msg": str(e)}
+        last_err = None
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                headers = self._headers("GET", path + query)
+                r = self.client.get(path, params=params, headers=headers)
+                try:
+                    return r.json()
+                except (json.JSONDecodeError, ValueError) as e:
+                    self._log(f"GET {path} JSON 파싱 실패 (시도 {attempt}/{_MAX_RETRIES}): {e}", level="ERROR")
+                    last_err = e
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+                self._log(f"GET {path} 네트워크 오류 (시도 {attempt}/{_MAX_RETRIES}): {e}", level="ERROR")
+                last_err = e
+            except Exception as e:
+                self._log(f"GET {path} 실패: {e}", level="ERROR")
+                return {"code": "-1", "msg": str(e)}
+            if attempt < _MAX_RETRIES:
+                time.sleep(_RETRY_DELAY)
+        return {"code": "-1", "msg": f"max retries exceeded: {last_err}"}
 
     # ─── 로깅 ────────────────────────────────────────────────
 

@@ -40,7 +40,9 @@ class Notifier:
             return
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         try:
-            httpx.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message}, timeout=5)
+            httpx.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message}, timeout=10)
+        except httpx.TimeoutException:
+            print(f"[Notifier] 텔레그램 발송 타임아웃")
         except Exception as e:
             print(f"[Notifier] 텔레그램 발송 실패: {e}")
 
@@ -55,20 +57,34 @@ class LLMJudge:
     }
 
     def __init__(self):
-        self.provider = LLM_PROVIDER.lower()
-        self.model = LLM_MODEL or self.DEFAULT_MODELS.get(self.provider, "gpt-4o")
+        self.available = False
+        try:
+            self.provider = LLM_PROVIDER.lower()
+            self.model = LLM_MODEL or self.DEFAULT_MODELS.get(self.provider, "gpt-4o")
 
-        if self.provider == "anthropic":
-            self.client = anthropic.Anthropic(api_key=LLM_API_KEY)
-        elif self.provider == "openai":
-            self.client = openai.OpenAI(api_key=LLM_API_KEY)
-        else:
-            raise ValueError(f"지원하지 않는 LLM provider: {self.provider} (anthropic 또는 openai)")
+            if not LLM_API_KEY:
+                print("[LLMJudge] API 키가 설정되지 않음 — LLM 판단 비활성화")
+                return
+
+            if self.provider == "anthropic":
+                self.client = anthropic.Anthropic(api_key=LLM_API_KEY)
+            elif self.provider == "openai":
+                self.client = openai.OpenAI(api_key=LLM_API_KEY)
+            else:
+                print(f"[LLMJudge] 지원하지 않는 LLM provider: {self.provider} — LLM 판단 비활성화")
+                return
+
+            self.available = True
+        except Exception as e:
+            print(f"[LLMJudge] 초기화 실패: {e} — LLM 판단 비활성화")
 
     def judge(self, signal: MarketSignal, current_price: float) -> str:
         """
         Returns: "MAINTAIN" | "WIDEN" | "PAUSE" | "STOP"
         """
+        if not self.available:
+            return "MAINTAIN"
+
         prompt = f"""
 당신은 BTC/ETH 그리드 거래 전문가입니다.
 현재 시장 상황을 분석하고 최적의 행동을 결정해주세요.
@@ -129,24 +145,55 @@ class OKXDataFetcher:
         self.client = httpx.Client(base_url=OKX_BASE_URL, timeout=10)
 
     def get_candles(self) -> list[dict]:
-        resp = self.client.get(
-            "/api/v5/market/candles",
-            params={"instId": SYMBOL, "bar": CANDLE_INTERVAL, "limit": CANDLE_LOOKBACK}
-        )
-        data = resp.json().get("data", [])
-        # OKX 반환: [[ts, open, high, low, close, vol, ...], ...]
-        # 최신이 앞에 오므로 역순 정렬
-        return [
-            {"ts": d[0], "open": d[1], "high": d[2], "low": d[3], "close": d[4], "vol": d[5]}
-            for d in reversed(data)
-        ]
+        try:
+            resp = self.client.get(
+                "/api/v5/market/candles",
+                params={"instId": SYMBOL, "bar": CANDLE_INTERVAL, "limit": CANDLE_LOOKBACK}
+            )
+            data = resp.json().get("data", [])
+            if not data:
+                print("[OKXDataFetcher] 캔들 데이터가 비어있음")
+                return []
+            result = []
+            for d in reversed(data):
+                if not isinstance(d, (list, tuple)) or len(d) < 6:
+                    continue
+                result.append(
+                    {"ts": d[0], "open": d[1], "high": d[2], "low": d[3], "close": d[4], "vol": d[5]}
+                )
+            return result
+        except httpx.TimeoutException:
+            print("[OKXDataFetcher] 캔들 요청 타임아웃")
+            return []
+        except (httpx.HTTPError, ConnectionError) as e:
+            print(f"[OKXDataFetcher] 캔들 네트워크 오류: {e}")
+            return []
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
+            print(f"[OKXDataFetcher] 캔들 데이터 파싱 오류: {e}")
+            return []
+        except Exception as e:
+            print(f"[OKXDataFetcher] 캔들 조회 실패: {e}")
+            return []
 
-    def get_current_price(self) -> float:
-        resp = self.client.get(
-            "/api/v5/market/ticker",
-            params={"instId": SYMBOL}
-        )
-        return float(resp.json()["data"][0]["last"])
+    def get_current_price(self) -> Optional[float]:
+        try:
+            resp = self.client.get(
+                "/api/v5/market/ticker",
+                params={"instId": SYMBOL}
+            )
+            return float(resp.json()["data"][0]["last"])
+        except httpx.TimeoutException:
+            print("[OKXDataFetcher] 가격 요청 타임아웃")
+            return None
+        except (httpx.HTTPError, ConnectionError) as e:
+            print(f"[OKXDataFetcher] 가격 네트워크 오류: {e}")
+            return None
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as e:
+            print(f"[OKXDataFetcher] 가격 데이터 파싱 오류: {e}")
+            return None
+        except Exception as e:
+            print(f"[OKXDataFetcher] 가격 조회 실패: {e}")
+            return None
 
 
 # ──────────────────────────────────────────────────────────────
@@ -199,11 +246,23 @@ class GridAgent:
                 self._log("사용자 중단 요청")
                 self.notifier.send("⛔ Grid Agent 수동 종료")
                 break
+            except SystemExit:
+                self._log("시스템 종료 요청")
+                self.notifier.send("⛔ Grid Agent 시스템 종료")
+                break
             except Exception as e:
                 self._log(f"루프 오류: {e}", level="ERROR")
-                self.notifier.send(f"❌ Agent 오류: {e}")
+                try:
+                    self.notifier.send(f"❌ Agent 오류: {e}")
+                except Exception:
+                    pass
 
-            time.sleep(LOOP_INTERVAL_SEC)
+            try:
+                time.sleep(LOOP_INTERVAL_SEC)
+            except KeyboardInterrupt:
+                self._log("사용자 중단 요청 (sleep 중)")
+                self.notifier.send("⛔ Grid Agent 수동 종료")
+                break
 
     # ─── 단일 루프 ─────────────────────────────────────────
 
@@ -212,30 +271,62 @@ class GridAgent:
         ts = datetime.now().strftime("%H:%M:%S")
 
         # 1. 데이터 수집
-        candles = self.fetcher.get_candles()
-        price   = self.fetcher.get_current_price()
-
-        # 2. 리스크 분석
-        signal  = self.analyzer.analyze(candles)
-
-        # 3. 손절 조건 우선 체크
-        if self._check_stop_loss(price):
-            self._log(f"💀 손절 조건 도달 | price={price:,.0f}")
-            self.controller.emergency_stop()
-            self.notifier.send(f"💀 손절 청산 | {SYMBOL} | 현재가={price:,.0f}")
+        try:
+            candles = self.fetcher.get_candles()
+            price   = self.fetcher.get_current_price()
+        except Exception as e:
+            self._log(f"데이터 수집 실패: {e}", level="ERROR")
             return
 
+        if price is None:
+            self._log("현재 가격을 가져올 수 없음 — 이번 틱 건너뜀", level="WARN")
+            return
+
+        if not candles:
+            self._log("캔들 데이터가 비어있음 — 이번 틱 건너뜀", level="WARN")
+            return
+
+        # 2. 리스크 분석
+        try:
+            signal = self.analyzer.analyze(candles)
+        except Exception as e:
+            self._log(f"리스크 분석 실패: {e}", level="ERROR")
+            return
+
+        # 3. 손절 조건 우선 체크
+        try:
+            if self._check_stop_loss(price):
+                self._log(f"💀 손절 조건 도달 | price={price:,.0f}")
+                self.controller.emergency_stop()
+                self.notifier.send(f"💀 손절 청산 | {SYMBOL} | 현재가={price:,.0f}")
+                return
+        except Exception as e:
+            self._log(f"손절 체크 실패: {e}", level="ERROR")
+
         # 4. 체결 내역 감시 → 매수/매도 알림
-        self._check_fills(price)
+        try:
+            self._check_fills(price)
+        except Exception as e:
+            self._log(f"체결 감시 실패: {e}", level="ERROR")
 
         # 5. 점수가 애매한 구간이면 LLM 판단 요청
-        action = self._decide_action(signal, price)
+        action = "MAINTAIN"
+        try:
+            action = self._decide_action(signal, price)
+        except Exception as e:
+            self._log(f"액션 결정 실패, MAINTAIN 유지: {e}", level="ERROR")
 
         # 6. 액션 실행
-        self._execute(action, signal, price)
+        try:
+            self._execute(action, signal, price)
+        except Exception as e:
+            self._log(f"액션 실행 실패: {e}", level="ERROR")
 
         # 7. 일일 리포트 체크
-        self._check_daily_report(price)
+        try:
+            self._check_daily_report(price)
+        except Exception as e:
+            self._log(f"일일 리포트 실패: {e}", level="ERROR")
 
         # 8. 로그 출력
         state_emoji = {"NORMAL": "🟢", "CAUTION": "🟡", "WARNING": "🟠", "EMERGENCY": "🔴"}
@@ -245,16 +336,19 @@ class GridAgent:
         )
 
         # 9. 상태 변화 시 텔레그램 알림
-        if signal.state != self.prev_state:
-            if signal.state in NOTIFY_ON_STATES:
-                self.notifier.send(
-                    f"{emoji} 상태 변화: {self.prev_state} → {signal.state}\n"
-                    f"리스크 점수: {signal.risk_score}/100\n"
-                    f"{signal.reason}\n"
-                    f"현재가: {price:,.0f}\n"
-                    f"액션: {action}"
-                )
-            self.prev_state = signal.state
+        try:
+            if signal.state != self.prev_state:
+                if signal.state in NOTIFY_ON_STATES:
+                    self.notifier.send(
+                        f"{emoji} 상태 변화: {self.prev_state} → {signal.state}\n"
+                        f"리스크 점수: {signal.risk_score}/100\n"
+                        f"{signal.reason}\n"
+                        f"현재가: {price:,.0f}\n"
+                        f"액션: {action}"
+                    )
+                self.prev_state = signal.state
+        except Exception as e:
+            self._log(f"상태 알림 발송 실패: {e}", level="ERROR")
 
     # ─── 의사결정 ──────────────────────────────────────────
 
@@ -313,20 +407,23 @@ class GridAgent:
         """새로운 체결 내역을 감지하고 텔레그램으로 알림."""
         try:
             fills = self.controller.get_recent_fills(limit=10)
-        except Exception:
+        except Exception as e:
+            self._log(f"체결 내역 조회 실패: {e}", level="ERROR")
             return
 
-        if not fills:
+        if not fills or not isinstance(fills, list):
             return
 
         # 첫 실행 시 마지막 ID만 기록
         if self.last_fill_id is None:
-            self.last_fill_id = fills[0].get("tradeId", "")
+            self.last_fill_id = fills[0].get("tradeId", "") if isinstance(fills[0], dict) else ""
             return
 
         # 새 체결만 필터링 (최신순으로 오므로 last_fill_id 이전까지)
         new_fills = []
         for f in fills:
+            if not isinstance(f, dict):
+                continue
             if f.get("tradeId", "") == self.last_fill_id:
                 break
             new_fills.append(f)
@@ -337,10 +434,14 @@ class GridAgent:
         self.last_fill_id = new_fills[0].get("tradeId", "")
 
         for f in reversed(new_fills):
-            side = f.get("side", "")
-            px   = float(f.get("fillPx", 0))
-            sz   = float(f.get("fillSz", 0))
-            fee  = float(f.get("fee", 0))
+            try:
+                side = f.get("side", "")
+                px   = float(f.get("fillPx", 0))
+                sz   = float(f.get("fillSz", 0))
+                fee  = float(f.get("fee", 0))
+            except (ValueError, TypeError) as e:
+                self._log(f"체결 데이터 파싱 오류: {e} | data={f}", level="ERROR")
+                continue
 
             if side == "buy":
                 emoji = "🟢"
@@ -367,57 +468,73 @@ class GridAgent:
 
     def _check_daily_report(self, current_price: float):
         """매일 지정 시간에 당일 손익 리포트를 텔레그램으로 발송."""
-        now = datetime.now()
-        today = now.strftime("%Y-%m-%d")
+        try:
+            now = datetime.now()
+            today = now.strftime("%Y-%m-%d")
 
-        # 이미 오늘 보냈으면 스킵
-        if self._report_sent_date == today:
-            return
+            # 이미 오늘 보냈으면 스킵
+            if self._report_sent_date == today:
+                return
 
-        # 지정 시간이 안 됐으면 스킵
-        if now.hour < DAILY_REPORT_HOUR:
-            return
+            # 지정 시간이 안 됐으면 스킵
+            if now.hour < DAILY_REPORT_HOUR:
+                return
 
-        # 날짜가 바뀌었으면 당일 카운터 리셋
-        if self._report_sent_date and self._report_sent_date != today:
-            self.daily_buys = 0
-            self.daily_sells = 0
-            self.daily_buy_vol = 0.0
-            self.daily_sell_vol = 0.0
+            # 날짜가 바뀌었으면 당일 카운터 리셋
+            if self._report_sent_date and self._report_sent_date != today:
+                self.daily_buys = 0
+                self.daily_sells = 0
+                self.daily_buy_vol = 0.0
+                self.daily_sell_vol = 0.0
 
-        # PnL 조회
-        pnl = self.controller.get_grid_pnl()
+            # PnL 조회
+            pnl_available = True
+            try:
+                pnl = self.controller.get_grid_pnl()
+                grid_profit = pnl.get("grid_profit", 0)
+                float_profit = pnl.get("float_profit", 0)
+                total_pnl = pnl.get("total_pnl", 0)
+                investment = pnl.get("investment", 0)
+                roi = (total_pnl / investment * 100) if investment > 0 else 0
+            except Exception as e:
+                self._log(f"PnL 조회 실패: {e}", level="ERROR")
+                pnl_available = False
 
-        grid_profit = pnl.get("grid_profit", 0)
-        float_profit = pnl.get("float_profit", 0)
-        total_pnl = pnl.get("total_pnl", 0)
-        investment = pnl.get("investment", 0)
-        roi = (total_pnl / investment * 100) if investment > 0 else 0
+            if pnl_available:
+                pnl_emoji = "📈" if total_pnl >= 0 else "📉"
+                pnl_section = (
+                    f"{pnl_emoji} 손익 현황\n"
+                    f"  그리드 수익: {grid_profit:+,.2f} USDT\n"
+                    f"  평가 손익: {float_profit:+,.2f} USDT\n"
+                    f"  총 손익: {total_pnl:+,.2f} USDT\n"
+                    f"  수익률: {roi:+.2f}%"
+                )
+            else:
+                pnl_section = "⚠️ 손익 현황: 조회 실패"
 
-        pnl_emoji = "📈" if total_pnl >= 0 else "📉"
+            msg = (
+                f"📊 일일 리포트 | {today}\n"
+                f"{'─' * 28}\n"
+                f"심볼: {SYMBOL}\n"
+                f"현재가: {current_price:,.0f} USDT\n"
+                f"{'─' * 28}\n"
+                f"{pnl_section}\n"
+                f"{'─' * 28}\n"
+                f"📋 당일 체결\n"
+                f"  매수: {self.daily_buys}건 ({self.daily_buy_vol:.6f})\n"
+                f"  매도: {self.daily_sells}건 ({self.daily_sell_vol:.6f})\n"
+                f"{'─' * 28}\n"
+                f"상태: {self.prev_state}"
+            )
 
-        msg = (
-            f"📊 일일 리포트 | {today}\n"
-            f"{'─' * 28}\n"
-            f"심볼: {SYMBOL}\n"
-            f"현재가: {current_price:,.0f} USDT\n"
-            f"{'─' * 28}\n"
-            f"{pnl_emoji} 손익 현황\n"
-            f"  그리드 수익: {grid_profit:+,.2f} USDT\n"
-            f"  평가 손익: {float_profit:+,.2f} USDT\n"
-            f"  총 손익: {total_pnl:+,.2f} USDT\n"
-            f"  수익률: {roi:+.2f}%\n"
-            f"{'─' * 28}\n"
-            f"📋 당일 체결\n"
-            f"  매수: {self.daily_buys}건 ({self.daily_buy_vol:.6f})\n"
-            f"  매도: {self.daily_sells}건 ({self.daily_sell_vol:.6f})\n"
-            f"{'─' * 28}\n"
-            f"상태: {self.prev_state}"
-        )
-
-        self.notifier.send(msg)
-        self._log(f"📊 일일 리포트 발송 | 총 손익={total_pnl:+,.2f} USDT")
-        self._report_sent_date = today
+            self.notifier.send(msg)
+            if pnl_available:
+                self._log(f"📊 일일 리포트 발송 | 총 손익={total_pnl:+,.2f} USDT")
+            else:
+                self._log("📊 일일 리포트 발송 (PnL 조회 실패, 간소화 리포트)")
+            self._report_sent_date = today
+        except Exception as e:
+            self._log(f"일일 리포트 생성 실패: {e}", level="ERROR")
 
     # ─── 손절 체크 ─────────────────────────────────────────
 
@@ -441,7 +558,11 @@ if __name__ == "__main__":
     import os
     from menu import main_menu, clear
 
-    result = main_menu()
+    try:
+        result = main_menu()
+    except KeyboardInterrupt:
+        print("\n사용자 중단 — 종료합니다.")
+        sys.exit(0)
 
     if result == "start":
         clear()
