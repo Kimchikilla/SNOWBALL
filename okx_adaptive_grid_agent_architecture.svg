@@ -1,165 +1,192 @@
-<svg width="100%" viewBox="0 0 680 620" xmlns="http://www.w3.org/2000/svg">
+<svg width="100%" viewBox="0 0 720 820" xmlns="http://www.w3.org/2000/svg">
 <defs>
   <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
     <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
   </marker>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .title { font-size: 14px; font-weight: 600; fill: #b5d4f4; }
+    .subtitle { font-size: 11px; fill: #85b7eb; }
+    .badge { font-size: 11px; font-weight: 500; fill: #5dcaa5; }
+    .agent-label { font-size: 11px; font-weight: 600; fill: #f0f0f0; }
+    .agent-sub { font-size: 9px; fill: #aaa; }
+    .action-text { font-size: 10px; font-weight: 500; }
+    .arrow-line { stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+  </style>
 </defs>
 
-<!-- Layer 1: Data -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="20" y="20" width="640" height="76" rx="10" stroke-width="0.5" style="fill:rgb(12, 68, 124);stroke:rgb(133, 183, 235);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="36" y="44" style="fill:rgb(181, 212, 244);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:start;dominant-baseline:auto">Data layer</text>
-  <text x="36" y="60" style="fill:rgb(133, 183, 235);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:start;dominant-baseline:auto">Real-time market feeds</text>
-</g>
-<g onclick="sendPrompt('OKX WebSocket 연결 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="36" y="64" width="140" height="24" rx="6" stroke-width="0.5" style="fill:rgb(8, 80, 65);stroke:rgb(93, 202, 165);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="106" y="76" text-anchor="middle" dominant-baseline="central" style="fill:rgb(93, 202, 165);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">OKX WebSocket</text>
-</g>
-<g onclick="sendPrompt('온체인 데이터 수집 방법 알려줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="188" y="64" width="140" height="24" rx="6" stroke-width="0.5" style="fill:rgb(8, 80, 65);stroke:rgb(93, 202, 165);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="258" y="76" text-anchor="middle" dominant-baseline="central" style="fill:rgb(93, 202, 165);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">Onchain (고래 이동)</text>
-</g>
-<g onclick="sendPrompt('뉴스 키워드 감지 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="340" y="64" width="140" height="24" rx="6" stroke-width="0.5" style="fill:rgb(8, 80, 65);stroke:rgb(93, 202, 165);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="410" y="76" text-anchor="middle" dominant-baseline="central" style="fill:rgb(93, 202, 165);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">뉴스 키워드 감지</text>
-</g>
-<g onclick="sendPrompt('펀딩비 모니터링 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="492" y="64" width="148" height="24" rx="6" stroke-width="0.5" style="fill:rgb(8, 80, 65);stroke:rgb(93, 202, 165);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="566" y="76" text-anchor="middle" dominant-baseline="central" style="fill:rgb(93, 202, 165);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">펀딩비 / 미결제약정</text>
-</g>
+<!-- Background -->
+<rect width="720" height="820" rx="12" fill="#0d1117"/>
 
-<!-- Arrow 1->2 -->
-<line x1="340" y1="96" x2="340" y2="116" marker-end="url(#arrow)" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(255, 255, 255);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<!-- ═══ Layer 1: Data ═══ -->
+<rect x="20" y="16" width="680" height="72" rx="10" fill="#0c447c" stroke="#85b7eb" stroke-width="0.5"/>
+<text x="36" y="38" class="title">Data Layer</text>
+<text x="36" y="52" class="subtitle">OKX Public API (REST)</text>
 
-<!-- Layer 2: Analysis -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="20" y="116" width="640" height="80" rx="10" stroke-width="0.5" style="fill:rgb(60, 52, 137);stroke:rgb(175, 169, 236);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="36" y="140" style="fill:rgb(206, 203, 246);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:start;dominant-baseline:auto">Analysis layer</text>
-  <text x="36" y="156" style="fill:rgb(175, 169, 236);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:start;dominant-baseline:auto">변동성 지수 산출</text>
-</g>
-<g onclick="sendPrompt('ATR 계산 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="36" y="160" width="110" height="28" rx="6" stroke-width="0.5" style="fill:rgb(114, 36, 62);stroke:rgb(237, 147, 177);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="91" y="174" text-anchor="middle" dominant-baseline="central" style="fill:rgb(237, 147, 177);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">ATR 변동폭</text>
-</g>
-<g onclick="sendPrompt('RSI 계산 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="158" y="160" width="110" height="28" rx="6" stroke-width="0.5" style="fill:rgb(114, 36, 62);stroke:rgb(237, 147, 177);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="213" y="174" text-anchor="middle" dominant-baseline="central" style="fill:rgb(237, 147, 177);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">RSI 과매수/도</text>
-</g>
-<g onclick="sendPrompt('볼린저밴드 계산 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="280" y="160" width="120" height="28" rx="6" stroke-width="0.5" style="fill:rgb(114, 36, 62);stroke:rgb(237, 147, 177);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="340" y="174" text-anchor="middle" dominant-baseline="central" style="fill:rgb(237, 147, 177);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">볼린저밴드 폭</text>
-</g>
-<g onclick="sendPrompt('거래량 급등 감지 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="412" y="160" width="120" height="28" rx="6" stroke-width="0.5" style="fill:rgb(114, 36, 62);stroke:rgb(237, 147, 177);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="472" y="174" text-anchor="middle" dominant-baseline="central" style="fill:rgb(237, 147, 177);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">거래량 급등 배수</text>
-</g>
-<g onclick="sendPrompt('리스크 스코어 계산 방법 알려줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="544" y="160" width="96" height="28" rx="6" stroke-width="0.5" style="fill:rgb(114, 36, 62);stroke:rgb(237, 147, 177);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="592" y="174" text-anchor="middle" dominant-baseline="central" style="fill:rgb(237, 147, 177);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">리스크 스코어</text>
-</g>
+<rect x="36" y="58" width="120" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="96" y="69" text-anchor="middle" dominant-baseline="central" class="badge">Candles (1m)</text>
 
-<!-- Arrow 2->3 -->
-<line x1="340" y1="196" x2="340" y2="216" marker-end="url(#arrow)" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(255, 255, 255);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<rect x="168" y="58" width="120" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="228" y="69" text-anchor="middle" dominant-baseline="central" class="badge">Ticker / Price</text>
 
-<!-- Layer 3: Decision Engine -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="20" y="216" width="640" height="104" rx="10" stroke-width="0.5" style="fill:rgb(99, 56, 6);stroke:rgb(239, 159, 39);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="36" y="240" style="fill:rgb(250, 199, 117);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:start;dominant-baseline:auto">Decision engine</text>
-  <text x="36" y="256" style="fill:rgb(239, 159, 39);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:start;dominant-baseline:auto">상태 머신 + LLM 판단</text>
-</g>
+<rect x="300" y="58" width="120" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="360" y="69" text-anchor="middle" dominant-baseline="central" class="badge">Fills History</text>
 
-<!-- State machine boxes -->
-<g onclick="sendPrompt('NORMAL 상태 그리드 설정값 알려줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="36" y="264" width="118" height="44" rx="8" stroke-width="0.5" style="fill:rgb(39, 80, 10);stroke:rgb(151, 196, 89);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="95" y="281" text-anchor="middle" dominant-baseline="central" style="fill:rgb(192, 221, 151);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">NORMAL</text>
-  <text x="95" y="298" text-anchor="middle" dominant-baseline="central" style="fill:rgb(151, 196, 89);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">score 0-30</text>
-</g>
-<g onclick="sendPrompt('CAUTION 상태에서 어떻게 대응하나')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="170" y="264" width="118" height="44" rx="8" stroke-width="0.5" style="fill:rgb(99, 56, 6);stroke:rgb(239, 159, 39);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="229" y="281" text-anchor="middle" dominant-baseline="central" style="fill:rgb(250, 199, 117);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">CAUTION</text>
-  <text x="229" y="298" text-anchor="middle" dominant-baseline="central" style="fill:rgb(239, 159, 39);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">score 31-60</text>
-</g>
-<g onclick="sendPrompt('WARNING 상태에서 그리드 어떻게 조정해')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="304" y="264" width="118" height="44" rx="8" stroke-width="0.5" style="fill:rgb(113, 43, 19);stroke:rgb(240, 153, 123);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="363" y="281" text-anchor="middle" dominant-baseline="central" style="fill:rgb(245, 196, 179);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">WARNING</text>
-  <text x="363" y="298" text-anchor="middle" dominant-baseline="central" style="fill:rgb(240, 153, 123);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">score 61-80</text>
-</g>
-<g onclick="sendPrompt('EMERGENCY 상태 자동 청산 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="438" y="264" width="118" height="44" rx="8" stroke-width="0.5" style="fill:rgb(121, 31, 31);stroke:rgb(240, 149, 149);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="497" y="281" text-anchor="middle" dominant-baseline="central" style="fill:rgb(247, 193, 193);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">EMERGENCY</text>
-  <text x="497" y="298" text-anchor="middle" dominant-baseline="central" style="fill:rgb(240, 149, 149);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">score 81-100</text>
-</g>
-<g onclick="sendPrompt('LLM이 판단하는 경우는 언제야')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="572" y="264" width="76" height="44" rx="8" stroke-width="0.5" style="fill:rgb(60, 52, 137);stroke:rgb(175, 169, 236);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="610" y="281" text-anchor="middle" dominant-baseline="central" style="fill:rgb(206, 203, 246);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">LLM</text>
-  <text x="610" y="298" text-anchor="middle" dominant-baseline="central" style="fill:rgb(175, 169, 236);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">복잡 상황</text>
-</g>
+<rect x="432" y="58" width="140" height="22" rx="6" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="502" y="69" text-anchor="middle" dominant-baseline="central" class="badge">Grid Bot Status</text>
 
-<!-- Arrows between states -->
-<line x1="154" y1="286" x2="168" y2="286" stroke="#888" marker-end="url(#arrow)" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(255, 255, 255);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-<line x1="288" y1="286" x2="302" y2="286" stroke="#888" marker-end="url(#arrow)" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(255, 255, 255);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-<line x1="422" y1="286" x2="436" y2="286" stroke="#888" marker-end="url(#arrow)" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(255, 255, 255);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<!-- Arrow: Data → Analyzer -->
+<line x1="360" y1="88" x2="360" y2="108" class="arrow-line" stroke="#85b7eb"/>
 
-<!-- Arrow 3->4 -->
-<line x1="340" y1="320" x2="340" y2="340" marker-end="url(#arrow)" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(255, 255, 255);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<!-- ═══ Layer 2: Analysis ═══ -->
+<rect x="20" y="108" width="680" height="100" rx="10" fill="#1a1a2e" stroke="#7c3aed" stroke-width="0.5"/>
+<text x="36" y="130" class="title" fill="#c4b5fd">Analysis Layer</text>
+<text x="36" y="144" class="subtitle" fill="#a78bfa">market_analyzer.py — Risk Score + Trend Detection</text>
 
-<!-- Layer 4: Action -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="20" y="340" width="640" height="104" rx="10" stroke-width="0.5" style="fill:rgb(68, 68, 65);stroke:rgb(180, 178, 169);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="36" y="364" style="fill:rgb(211, 209, 199);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:start;dominant-baseline:auto">Action layer</text>
-  <text x="36" y="380" style="fill:rgb(180, 178, 169);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:start;dominant-baseline:auto">OKX API 실행</text>
-</g>
-<g onclick="sendPrompt('NORMAL 액션 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="36" y="388" width="110" height="44" rx="8" stroke-width="0.5" style="fill:rgb(39, 80, 10);stroke:rgb(151, 196, 89);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="91" y="405" text-anchor="middle" dominant-baseline="central" style="fill:rgb(192, 221, 151);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">정상 운영</text>
-  <text x="91" y="422" text-anchor="middle" dominant-baseline="central" style="fill:rgb(151, 196, 89);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">그리드 유지</text>
-</g>
-<g onclick="sendPrompt('그리드 간격 넓히는 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="160" y="388" width="120" height="44" rx="8" stroke-width="0.5" style="fill:rgb(99, 56, 6);stroke:rgb(239, 159, 39);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="220" y="405" text-anchor="middle" dominant-baseline="central" style="fill:rgb(250, 199, 117);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">간격 확대</text>
-  <text x="220" y="422" text-anchor="middle" dominant-baseline="central" style="fill:rgb(239, 159, 39);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">ATR x 2배</text>
-</g>
-<g onclick="sendPrompt('신규 주문 중단 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="294" y="388" width="120" height="44" rx="8" stroke-width="0.5" style="fill:rgb(113, 43, 19);stroke:rgb(240, 153, 123);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="354" y="405" text-anchor="middle" dominant-baseline="central" style="fill:rgb(245, 196, 179);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">신규 주문 중단</text>
-  <text x="354" y="422" text-anchor="middle" dominant-baseline="central" style="fill:rgb(240, 153, 123);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">기존 유지만</text>
-</g>
-<g onclick="sendPrompt('전체 청산 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="428" y="388" width="110" height="44" rx="8" stroke-width="0.5" style="fill:rgb(121, 31, 31);stroke:rgb(240, 149, 149);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="483" y="405" text-anchor="middle" dominant-baseline="central" style="fill:rgb(247, 193, 193);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">전체 청산</text>
-  <text x="483" y="422" text-anchor="middle" dominant-baseline="central" style="fill:rgb(240, 149, 149);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">시장가 즉시</text>
-</g>
-<g onclick="sendPrompt('텔레그램 알림 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="552" y="388" width="96" height="44" rx="8" stroke-width="0.5" style="fill:rgb(8, 80, 65);stroke:rgb(93, 202, 165);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="600" y="405" text-anchor="middle" dominant-baseline="central" style="fill:rgb(159, 225, 203);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:middle;dominant-baseline:central">알림 발송</text>
-  <text x="600" y="422" text-anchor="middle" dominant-baseline="central" style="fill:rgb(93, 202, 165);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">Telegram</text>
-</g>
+<rect x="36" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
+<text x="86" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">ATR</text>
+<text x="86" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">30pts max</text>
 
-<!-- Arrow 4->5 -->
-<line x1="340" y1="444" x2="340" y2="464" marker-end="url(#arrow)" style="fill:none;stroke:rgb(156, 154, 146);color:rgb(255, 255, 255);stroke-width:1.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+<rect x="148" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
+<text x="198" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">RSI</text>
+<text x="198" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">25pts max</text>
 
-<!-- Layer 5: Logging -->
-<g style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="20" y="464" width="640" height="60" rx="10" stroke-width="0.5" style="fill:rgb(68, 68, 65);stroke:rgb(180, 178, 169);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="36" y="488" style="fill:rgb(211, 209, 199);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:14px;font-weight:500;text-anchor:start;dominant-baseline:auto">Logging / monitoring</text>
-</g>
-<g onclick="sendPrompt('거래 로그 저장 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="36" y="500" width="110" height="16" rx="6" stroke-width="0.5" style="fill:rgb(12, 68, 124);stroke:rgb(133, 183, 235);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="91" y="508" text-anchor="middle" dominant-baseline="central" style="fill:rgb(133, 183, 235);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">전체 액션 로그</text>
-</g>
-<g onclick="sendPrompt('PnL 트래킹 코드 보여줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="160" y="500" width="110" height="16" rx="6" stroke-width="0.5" style="fill:rgb(12, 68, 124);stroke:rgb(133, 183, 235);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="215" y="508" text-anchor="middle" dominant-baseline="central" style="fill:rgb(133, 183, 235);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">실시간 PnL 추적</text>
-</g>
-<g onclick="sendPrompt('상태 변화 이력 관리 방법 알려줘')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="284" y="500" width="110" height="16" rx="6" stroke-width="0.5" style="fill:rgb(12, 68, 124);stroke:rgb(133, 183, 235);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="339" y="508" text-anchor="middle" dominant-baseline="central" style="fill:rgb(133, 183, 235);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">상태 변화 이력</text>
-</g>
-<g onclick="sendPrompt('대시보드 어떻게 만들어')" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
-  <rect x="408" y="500" width="110" height="16" rx="6" stroke-width="0.5" style="fill:rgb(12, 68, 124);stroke:rgb(133, 183, 235);color:rgb(255, 255, 255);stroke-width:0.5px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
-  <text x="463" y="508" text-anchor="middle" dominant-baseline="central" style="fill:rgb(133, 183, 235);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:central">성과 리포트</text>
-</g>
+<rect x="260" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
+<text x="310" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">Bollinger</text>
+<text x="310" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">25pts max</text>
 
-<!-- Side label -->
-<text x="340" y="580" text-anchor="middle" style="fill:rgb(194, 192, 182);stroke:none;color:rgb(255, 255, 255);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:12px;font-weight:400;text-anchor:middle;dominant-baseline:auto">각 박스를 클릭하면 해당 코드를 요청할 수 있어요</text>
+<rect x="372" y="155" width="100" height="40" rx="6" fill="#2d1b69" stroke="#7c3aed" stroke-width="0.5"/>
+<text x="422" y="171" text-anchor="middle" class="agent-label" fill="#c4b5fd">Volume</text>
+<text x="422" y="183" text-anchor="middle" class="agent-sub" fill="#a78bfa">20pts max</text>
+
+<rect x="484" y="155" width="100" height="40" rx="6" fill="#1b4332" stroke="#2dd4bf" stroke-width="0.5"/>
+<text x="534" y="171" text-anchor="middle" class="agent-label" fill="#2dd4bf">EMA 9/21</text>
+<text x="534" y="183" text-anchor="middle" class="agent-sub" fill="#5eead4">Trend Dir</text>
+
+<rect x="596" y="155" width="88" height="40" rx="6" fill="#1b4332" stroke="#2dd4bf" stroke-width="0.5"/>
+<text x="640" y="171" text-anchor="middle" class="agent-label" fill="#2dd4bf">ADX</text>
+<text x="640" y="183" text-anchor="middle" class="agent-sub" fill="#5eead4">Strength</text>
+
+<!-- Arrow: Analyzer → Decision -->
+<line x1="360" y1="208" x2="360" y2="228" class="arrow-line" stroke="#a78bfa"/>
+
+<!-- ═══ Layer 3: Multi-Agent Consensus ═══ -->
+<rect x="20" y="228" width="680" height="220" rx="10" fill="#1c1917" stroke="#f59e0b" stroke-width="0.5"/>
+<text x="36" y="250" class="title" fill="#fcd34d">Multi-Agent Consensus</text>
+<text x="36" y="264" class="subtitle" fill="#fbbf24">multi_agent.py — 4 Specialists + Coordinator</text>
+
+<!-- 4 Agents -->
+<rect x="36" y="278" width="145" height="60" rx="8" fill="#7c2d12" stroke="#f97316" stroke-width="0.5"/>
+<text x="108" y="300" text-anchor="middle" class="agent-label">Technical Analyst</text>
+<text x="108" y="314" text-anchor="middle" class="agent-sub">EMA, ATR, BB, RSI</text>
+<text x="108" y="326" text-anchor="middle" class="agent-sub">chart patterns</text>
+
+<rect x="193" y="278" width="145" height="60" rx="8" fill="#7c2d12" stroke="#f97316" stroke-width="0.5"/>
+<text x="265" y="300" text-anchor="middle" class="agent-label">Sentiment Analyst</text>
+<text x="265" y="314" text-anchor="middle" class="agent-sub">volume, panic/FOMO</text>
+<text x="265" y="326" text-anchor="middle" class="agent-sub">market psychology</text>
+
+<rect x="350" y="278" width="145" height="60" rx="8" fill="#991b1b" stroke="#ef4444" stroke-width="0.8"/>
+<text x="422" y="300" text-anchor="middle" class="agent-label">Risk Manager</text>
+<text x="422" y="314" text-anchor="middle" class="agent-sub">capital preservation</text>
+<text x="422" y="326" text-anchor="middle" style="font-size:9px;font-weight:700;fill:#fca5a5">2x VOTE WEIGHT</text>
+
+<rect x="507" y="278" width="145" height="60" rx="8" fill="#7c2d12" stroke="#f97316" stroke-width="0.5"/>
+<text x="579" y="300" text-anchor="middle" class="agent-label">Macro Strategist</text>
+<text x="579" y="314" text-anchor="middle" class="agent-sub">trend cycle, ADX</text>
+<text x="579" y="326" text-anchor="middle" class="agent-sub">big picture</text>
+
+<!-- Arrows to Coordinator -->
+<line x1="108" y1="338" x2="340" y2="380" class="arrow-line" stroke="#f59e0b"/>
+<line x1="265" y1="338" x2="340" y2="380" class="arrow-line" stroke="#f59e0b"/>
+<line x1="422" y1="338" x2="380" y2="380" class="arrow-line" stroke="#ef4444" stroke-width="2"/>
+<line x1="579" y1="338" x2="380" y2="380" class="arrow-line" stroke="#f59e0b"/>
+
+<!-- Coordinator -->
+<rect x="260" y="375" width="200" height="50" rx="10" fill="#92400e" stroke="#fbbf24" stroke-width="1"/>
+<text x="360" y="396" text-anchor="middle" style="font-size:13px;font-weight:700;fill:#fef3c7">Coordinator</text>
+<text x="360" y="412" text-anchor="middle" class="agent-sub" fill="#fcd34d">majority + defense bias</text>
+
+<!-- Arrow: Coordinator → Decision -->
+<line x1="360" y1="425" x2="360" y2="458" class="arrow-line" stroke="#fbbf24"/>
+
+<!-- ═══ Layer 4: Decision Engine ═══ -->
+<rect x="20" y="458" width="680" height="90" rx="10" fill="#0f172a" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="36" y="480" class="title" fill="#93c5fd">Decision Engine</text>
+<text x="36" y="494" class="subtitle" fill="#60a5fa">main_agent.py — State Machine + Trend Override</text>
+
+<rect x="36" y="504" width="90" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="81" y="519" text-anchor="middle" class="action-text" fill="#22c55e">MAINTAIN</text>
+
+<rect x="138" y="504" width="75" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="175" y="519" text-anchor="middle" class="action-text" fill="#eab308">WIDEN</text>
+
+<rect x="225" y="504" width="75" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="262" y="519" text-anchor="middle" class="action-text" fill="#f97316">PAUSE</text>
+
+<rect x="312" y="504" width="65" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="344" y="519" text-anchor="middle" class="action-text" fill="#ef4444">STOP</text>
+
+<rect x="389" y="504" width="80" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="429" y="519" text-anchor="middle" class="action-text" fill="#eab308">REDUCE</text>
+
+<rect x="481" y="504" width="90" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="526" y="519" text-anchor="middle" class="action-text" fill="#2dd4bf">SHIFT UP</text>
+
+<rect x="583" y="504" width="100" height="30" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="0.5"/>
+<text x="633" y="519" text-anchor="middle" class="action-text" fill="#2dd4bf">SHIFT DOWN</text>
+
+<!-- Arrow: Decision → Execution -->
+<line x1="360" y1="548" x2="360" y2="568" class="arrow-line" stroke="#3b82f6"/>
+
+<!-- ═══ Layer 5: Execution ═══ -->
+<rect x="20" y="568" width="680" height="72" rx="10" fill="#064e3b" stroke="#34d399" stroke-width="0.5"/>
+<text x="36" y="590" class="title" fill="#a7f3d0">Execution Layer</text>
+<text x="36" y="604" class="subtitle" fill="#6ee7b7">grid_controller.py — OKX Trading Bot API</text>
+
+<rect x="36" y="612" width="130" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="101" y="622" text-anchor="middle" dominant-baseline="central" class="badge">Start / Stop Grid</text>
+
+<rect x="178" y="612" width="120" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="238" y="622" text-anchor="middle" dominant-baseline="central" class="badge">Widen Grid</text>
+
+<rect x="310" y="612" width="120" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="370" y="622" text-anchor="middle" dominant-baseline="central" class="badge">Shift Center</text>
+
+<rect x="442" y="612" width="130" height="20" rx="5" fill="#085041" stroke="#5dcaa5" stroke-width="0.5"/>
+<text x="507" y="622" text-anchor="middle" dominant-baseline="central" class="badge">Reduce Exposure</text>
+
+<rect x="584" y="612" width="100" height="20" rx="5" fill="#450a0a" stroke="#ef4444" stroke-width="0.5"/>
+<text x="634" y="622" text-anchor="middle" dominant-baseline="central" style="font-size:11px;font-weight:500;fill:#fca5a5">Emergency</text>
+
+<!-- Arrow: Execution → Notification -->
+<line x1="360" y1="640" x2="360" y2="660" class="arrow-line" stroke="#34d399"/>
+
+<!-- ═══ Layer 6: Notification ═══ -->
+<rect x="20" y="660" width="680" height="72" rx="10" fill="#1e1b4b" stroke="#818cf8" stroke-width="0.5"/>
+<text x="36" y="682" class="title" fill="#c7d2fe">Notification Layer</text>
+<text x="36" y="696" class="subtitle" fill="#a5b4fc">Telegram Alerts + Daily Report</text>
+
+<rect x="36" y="704" width="130" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
+<text x="101" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">Trade Fills Alert</text>
+
+<rect x="178" y="704" width="150" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
+<text x="253" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">State Change Alert</text>
+
+<rect x="340" y="704" width="160" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
+<text x="420" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">Consensus Report</text>
+
+<rect x="512" y="704" width="140" height="20" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
+<text x="582" y="714" text-anchor="middle" dominant-baseline="central" style="font-size:11px;fill:#c7d2fe">Daily PnL Report</text>
+
+<!-- ═══ Loop indicator ═══ -->
+<rect x="250" y="752" width="220" height="36" rx="18" fill="#1f2937" stroke="#6b7280" stroke-width="0.5"/>
+<text x="360" y="770" text-anchor="middle" dominant-baseline="central" style="font-size:12px;font-weight:600;fill:#9ca3af">Loop every 2 min</text>
+
+<!-- Loop arrow -->
+<path d="M 690 770 Q 710 770 710 400 Q 710 120 690 120" fill="none" stroke="#4b5563" stroke-width="1" stroke-dasharray="4 3"/>
+<path d="M 690 120 L 686 128 M 690 120 L 694 128" fill="none" stroke="#4b5563" stroke-width="1"/>
+
+<!-- ═══ Footer ═══ -->
+<text x="360" y="808" text-anchor="middle" style="font-size:10px;fill:#4b5563">Snowball — OKX Adaptive Grid Trading Agent</text>
 </svg>
