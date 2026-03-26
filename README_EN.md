@@ -126,6 +126,21 @@ src/
 └── requirements.txt     # Dependencies
 ```
 
+## Estimated LLM API Cost
+
+Based on 2-minute loop interval (21,600 loops/month). LLM is only called when risk score falls in the 55~80 range.
+
+| Model | Stable (~5%) | Normal (~15%) | Volatile (~30%) |
+|-------|:----------:|:------------:|:--------------:|
+| Claude Haiku 4 | $0.18 | $0.53 | $1.06 |
+| GPT-4o Mini | $0.10 | $0.29 | $0.58 |
+| GPT-4.1 | $1.30 | $3.89 | $7.78 |
+| GPT-4o | $1.62 | $4.86 | $9.72 |
+| **Claude Sonnet 4** (default) | **$2.11** | **$6.32** | **$12.64** |
+| Claude Opus 4 | $10.53 | $31.59 | $63.18 |
+
+> Budget pick: **Haiku 4** / **GPT-4o Mini** (under $1/mo). Quality pick: **Sonnet 4** or above.
+
 ## Caution
 
 - Test thoroughly with `DEMO_MODE = True` before switching to live trading
