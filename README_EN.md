@@ -37,33 +37,59 @@ When the score falls in an ambiguous range (55~80), the decision is delegated to
 | Bollinger Band | 25 | Band width expansion |
 | Volume | 20 | Volume spike |
 
-## Installation
+## Run
 
 ```bash
-pip install -r src/requirements.txt
+cd src
+pip install -r requirements.txt
+python main_agent.py
 ```
 
-## Configuration
+An interactive arrow-key menu launches on start:
 
-Edit `src/config.py`:
-
-```python
-# Required
-OKX_API_KEY    = "your_api_key"
-OKX_SECRET_KEY = "your_secret_key"
-OKX_PASSPHRASE = "your_passphrase"
-LLM_PROVIDER   = "anthropic"       # "anthropic" or "openai"
-LLM_API_KEY    = "your_api_key"
-
-# Optional (Telegram alerts)
-TELEGRAM_TOKEN   = "your_bot_token"
-TELEGRAM_CHAT_ID = "your_chat_id"
-
-# Trading
-SYMBOL       = "BTC-USDT"
-TOTAL_BUDGET = 1000.0
-DEMO_MODE    = True  # True = paper trading, False = live trading
 ```
+╔══════════════════════════════════════════════════╗
+║            ❄️  Snowball Agent  ❄️                ║
+║         OKX Adaptive Grid Trading Agent          ║
+╚══════════════════════════════════════════════════╝
+
+  Status: ❌ Setup required
+
+? Menu (↑↓ navigate, Enter select)
+ ❯ 🚀 Start Agent
+   ⚙️  Settings
+   📋 View Config
+   🚪 Exit
+```
+
+### Settings Menu
+
+Configure each section individually:
+
+```
+? Settings (↑↓ navigate, Enter select)
+ ❯ ❌ OKX API
+   ❌ Trading
+   ❌ LLM
+   ⬜ Telegram Alerts
+   ⬜ Advanced
+   ──────────────
+   ← Back
+```
+
+- **Arrow keys (↑↓)** to navigate, **Enter** to select
+- **API keys** are entered with password masking (`****`)
+- **LLM provider/model** etc. are selected via arrow keys
+- **Telegram alert states** support multi-select with **Space**
+
+```
+? Alert states (↑↓ navigate, Space toggle, Enter confirm)
+ ❯ ◉ CAUTION
+   ◉ WARNING
+   ◉ EMERGENCY
+```
+
+Settings are saved to `.env`. Stop with `Ctrl+C`.
 
 ### Configurable Parameters
 
@@ -72,66 +98,23 @@ DEMO_MODE    = True  # True = paper trading, False = live trading
 | `SYMBOL` | `BTC-USDT` | Trading pair |
 | `TOTAL_BUDGET` | `1000.0` | Total USDT budget |
 | `GRID_BUDGET` | `400.0` | Budget allocated to grid |
-| `RESERVE_BUDGET` | `600.0` | Reserve funds |
 | `GRID_LOWER` / `GRID_UPPER` | `90000` / `110000` | Grid lower/upper price |
 | `GRID_COUNT` | `20` | Number of grid levels |
 | `GRID_MODE` | `arithmetic` | Grid mode (`arithmetic` / `geometric`) |
 | `LOOP_INTERVAL_SEC` | `120` | Main loop interval (seconds) |
-| `CANDLE_INTERVAL` | `1m` | Candle timeframe |
-| `CANDLE_LOOKBACK` | `100` | Number of candles for analysis |
-| `ATR_PERIOD` | `14` | ATR calculation period |
-| `ATR_SPIKE_MULTIPLIER` | `3.0` | ATR anomaly threshold multiplier |
-| `RSI_PERIOD` | `14` | RSI calculation period |
-| `RSI_OVERBOUGHT` / `RSI_OVERSOLD` | `75` / `25` | RSI overbought/oversold levels |
-| `BOLLINGER_PERIOD` | `20` | Bollinger Bands period |
-| `BOLLINGER_STD` | `2.0` | Bollinger Bands std dev multiplier |
-| `VOLUME_SPIKE_MULTIPLIER` | `5.0` | Volume spike threshold multiplier |
 | `MAX_LOSS_PERCENT` | `15.0` | Stop-loss threshold (% from entry) |
 | `LLM_PROVIDER` | `anthropic` | LLM provider (`anthropic` / `openai`) |
-| `LLM_API_KEY` | - | LLM API key |
-| `LLM_MODEL` | auto | Model name (defaults: `claude-sonnet-4-20250514` / `gpt-4o`) |
+| `LLM_MODEL` | auto | Model name (`claude-sonnet-4-20250514` / `gpt-4o`) |
 | `LLM_TRIGGER_SCORE` | `55` | Minimum score to trigger LLM judgment |
-
-## Run
-
-On first run, the interactive setup wizard launches automatically:
-
-```bash
-cd src
-python main_agent.py
-```
-
-```
-╔══════════════════════════════════════════════════╗
-║         ❄️  Snowball Setup Wizard  ❄️            ║
-║         OKX Adaptive Grid Trading Agent          ║
-╚══════════════════════════════════════════════════╝
-
-─── OKX API Settings ───────────────────────────
-  API Key: ********
-  Secret Key: ********
-  ...
-
-─── LLM Settings ───────────────────────────────
-  LLM Provider [anthropic/openai] (default: anthropic): openai
-  LLM API Key: ********
-  ...
-```
-
-Settings are saved to a `.env` file. To reconfigure later:
-
-```bash
-python main_agent.py --setup
-```
-
-Stop with `Ctrl+C`.
 
 ## File Structure
 
 ```
 src/
-├── config.py            # Settings (API keys, trading params, thresholds)
-├── main_agent.py        # Main loop, state machine, LLM judgment, Telegram alerts
+├── main_agent.py        # Entry point, state machine, LLM judgment, Telegram alerts
+├── menu.py              # Arrow-key interactive menu (questionary)
+├── setup.py             # Setup wizard (legacy)
+├── config.py            # .env loader + defaults
 ├── market_analyzer.py   # ATR/RSI/BB/Volume analysis → risk score
 ├── grid_controller.py   # OKX Grid Bot API control (start/widen/pause/liquidate)
 └── requirements.txt     # Dependencies
@@ -140,5 +123,5 @@ src/
 ## Caution
 
 - Test thoroughly with `DEMO_MODE = True` before switching to live trading
-- Never push `config.py` with real API keys to a public repository
+- API keys are stored in `.env` and managed via `.gitignore`
 - Auto-liquidation triggers at `MAX_LOSS_PERCENT` (default 15%)
