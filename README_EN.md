@@ -1,14 +1,10 @@
 **English** | [한국어](README.md)
 
-<div align="center">
-
 > [!CAUTION]
-> **This software is not financial advice.**<br>
-> All financial losses arising from the use of this program are solely the responsibility of the user.<br>
-> Cryptocurrency trading carries the risk of losing your principal, and past returns do not guarantee future results.<br>
+> **This software is not financial advice.**
+> All financial losses arising from the use of this program are solely the responsibility of the user.
+> Cryptocurrency trading carries the risk of losing your principal, and past returns do not guarantee future results.
 > Only invest what you can afford to lose.
-
-</div>
 
 # Snowball - OKX Adaptive Grid Trading Agent
 
