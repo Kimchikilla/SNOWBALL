@@ -26,6 +26,11 @@ class MarketSignal:
     rsi: float
     bb_width: float
     volume_ratio: float         # 현재 거래량 / 평균 거래량
+    trend: str                  # BULLISH | BEARISH | SIDEWAYS
+    trend_strength: float       # 0~100 추세 강도 (ADX 값)
+    ema_short: float            # 단기 EMA (9) 값
+    ema_long: float             # 장기 EMA (21) 값
+    adx: float                  # ADX 값
     state: str                  # NORMAL | CAUTION | WARNING | EMERGENCY
     reason: str                 # 사람이 읽기 좋은 요약
 
@@ -62,11 +67,15 @@ class MarketAnalyzer:
         bb_score,     bb_width           = self._bollinger_score(closes)
         volume_score, vol_ratio          = self._volume_score(volumes)
 
+        trend, trend_strength, ema_short, ema_long, adx = self._detect_trend(
+            highs, lows, closes
+        )
+
         total = atr_score + rsi_score + bb_score + volume_score
         state = self._classify(total)
         reason = self._summarize(
             total, atr_score, rsi_score, bb_score, volume_score,
-            atr_cur, atr_avg, rsi, bb_width, vol_ratio
+            atr_cur, atr_avg, rsi, bb_width, vol_ratio, trend, trend_strength
         )
 
         return MarketSignal(
@@ -80,6 +89,11 @@ class MarketAnalyzer:
             rsi=rsi,
             bb_width=bb_width,
             volume_ratio=vol_ratio,
+            trend=trend,
+            trend_strength=round(trend_strength, 1),
+            ema_short=round(ema_short, 2),
+            ema_long=round(ema_long, 2),
+            adx=round(adx, 1),
             state=state,
             reason=reason
         )
@@ -146,6 +160,62 @@ class MarketAnalyzer:
         score = min(20.0, max(0.0, (ratio - 1.0) / (VOLUME_SPIKE_MULTIPLIER - 1.0) * 20.0))
         return round(score, 1), round(ratio, 2)
 
+    # ─── 추세 감지 ──────────────────────────────────────────
+
+    def _detect_trend(self, highs, lows, closes):
+        """EMA 9/21 크로스오버 + ADX로 추세 방향·강도를 판별합니다.
+
+        Returns:
+            (trend, trend_strength, ema_short, ema_long, adx)
+        """
+        ema_short = self._ema(closes, 9)[-1]
+        ema_long  = self._ema(closes, 21)[-1]
+        adx       = self._calc_adx(highs, lows, closes, period=14)
+
+        if adx < 20:
+            trend = "SIDEWAYS"
+        elif ema_short > ema_long:
+            trend = "BULLISH"
+        else:
+            trend = "BEARISH"
+
+        return trend, adx, ema_short, ema_long, adx
+
+    def _calc_adx(self, highs, lows, closes, period=14):
+        """ADX(Average Directional Index)를 계산합니다.
+
+        +DM, -DM → +DI, -DI (ATR 사용) → DX → ADX(EMA smoothing)
+        """
+        high_diff = highs[1:] - highs[:-1]
+        low_diff  = lows[:-1] - lows[1:]
+
+        plus_dm  = np.where((high_diff > low_diff) & (high_diff > 0), high_diff, 0.0)
+        minus_dm = np.where((low_diff > high_diff) & (low_diff > 0), low_diff, 0.0)
+
+        # True Range
+        tr = np.maximum(
+            highs[1:] - lows[1:],
+            np.maximum(
+                np.abs(highs[1:] - closes[:-1]),
+                np.abs(lows[1:]  - closes[:-1])
+            )
+        )
+
+        # EMA smoothing
+        atr       = self._ema(tr, period)
+        plus_dm_s = self._ema(plus_dm, period)
+        minus_dm_s = self._ema(minus_dm, period)
+
+        # +DI, -DI
+        plus_di  = 100 * plus_dm_s / (atr + 1e-9)
+        minus_di = 100 * minus_dm_s / (atr + 1e-9)
+
+        # DX → ADX
+        dx  = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di + 1e-9)
+        adx = self._ema(dx, period)
+
+        return float(adx[-1])
+
     # ─── 유틸 ────────────────────────────────────────────────
 
     def _ema(self, arr: np.ndarray, period: int) -> np.ndarray:
@@ -167,8 +237,12 @@ class MarketAnalyzer:
             return "EMERGENCY"
 
     def _summarize(self, total, atr_s, rsi_s, bb_s, vol_s,
-                   atr_cur, atr_avg, rsi, bb_width, vol_ratio) -> str:
+                   atr_cur, atr_avg, rsi, bb_width, vol_ratio,
+                   trend="SIDEWAYS", trend_strength=0.0) -> str:
         reasons = []
+        if trend != "SIDEWAYS":
+            label = "상승 추세" if trend == "BULLISH" else "하락 추세"
+            reasons.append(f"{label} (ADX {trend_strength:.1f})")
         if atr_s >= 15:
             reasons.append(f"ATR 급등 ({atr_cur:.1f} → 평균 {atr_avg:.1f}의 {atr_cur/max(atr_avg,1):.1f}배)")
         if rsi_s >= 10:
