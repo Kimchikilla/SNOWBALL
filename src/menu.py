@@ -40,6 +40,15 @@ def clear():
     os.system("cls" if os.name == "nt" else "clear")
 
 
+def print_disclaimer():
+    RED = "\033[91m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+    print(f"{RED}  ⚠️  이 소프트웨어는 투자 조언이 아니며, 모든 손실은{RESET}")
+    print(f"{RED}  사용자 본인 책임입니다. 감당 가능한 금액만 투자하세요.{RESET}")
+    print()
+
+
 def header(title: str = ""):
     clear()
     print(BANNER)
@@ -100,6 +109,7 @@ def main_menu():
     try:
         while True:
             header()
+            print_disclaimer()
             configured = is_configured()
             status = "✅ 설정 완료" if configured else "❌ 설정 필요"
             print(f"  상태: {status}\n")
