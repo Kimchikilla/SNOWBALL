@@ -8,7 +8,7 @@
 
 # Snowball - OKX Adaptive Grid Trading Agent
 
-An adaptive grid trading bot for the OKX exchange. It analyzes market volatility in real-time, automatically adjusts grid spacing, and delegates decisions to Claude AI in risky situations.
+An adaptive grid trading bot for the OKX exchange. It analyzes market volatility in real-time, automatically adjusts grid spacing, and uses a **multi-agent AI consensus system** (4 specialists + coordinator) for risk decisions.
 
 ## Architecture
 
@@ -32,7 +32,56 @@ Repeats the following cycle every 2 minutes:
 | 61~80 | WARNING | Pause new orders |
 | 81~100 | EMERGENCY | Liquidate all |
 
-When the score falls in an ambiguous range (55~80), the decision is delegated to the Claude API.
+When the score falls in an ambiguous range (55~80), the **multi-agent consensus system** makes the decision.
+
+### Multi-Agent Consensus System
+
+Instead of a single LLM, 4 specialist agents analyze independently, then a coordinator derives consensus:
+
+```
+┌─────────────────────────────────────────┐
+│        Market Data (shared context)      │
+└─────┬────────┬────────┬────────┬────────┘
+      │        │        │        │
+ ┌────▼───┐┌───▼────┐┌──▼────┐┌──▼──────┐
+ │Technical││Sentiment││ Risk  ││  Macro  │
+ │ Analyst ││ Analyst ││Manager││Strategist│
+ └────┬───┘└───┬────┘└──┬────┘└──┬──────┘
+      │        │     (2x)│       │
+      └────────┴────────┴───────┘
+                    │
+              ┌─────▼─────┐
+              │ Coordinator│
+              └─────┬─────┘
+                    │
+              Final Action
+```
+
+| Agent | Role | Focus |
+|-------|------|-------|
+| Technical Analyst | Chart analysis | EMA cross, ATR, BB, RSI patterns |
+| Sentiment Analyst | Market psychology | Volume patterns, panic/FOMO detection |
+| Risk Manager | Capital preservation | Worst-case scenarios **(2x vote weight)** |
+| Macro Strategist | Big picture | Trend direction, market cycle, ADX |
+| Coordinator | Consensus | Majority vote + defense bias + confidence weighting |
+
+**Consensus rules:**
+- 3/4+ agreement → adopted
+- Risk Manager STOP/PAUSE → 2x vote weight
+- Split opinions → most defensive action wins
+- Average confidence ≤ 3 → MAINTAIN (low conviction)
+- Set `MULTI_AGENT_MODE=false` to fall back to single LLM mode
+
+### Trend Detection & Auto-Response
+
+EMA 9/21 crossover + ADX for trend detection and automatic response:
+
+| Condition | Action | Description |
+|-----------|--------|-------------|
+| Bearish + ADX≥50 | PAUSE | Strong downtrend, pause new orders |
+| Bearish + ADX≥30 | REDUCE | Cancel buy orders only (downside defense) |
+| Bullish + near grid top | SHIFT_UP | Shift grid upward |
+| Bearish + near grid bottom | SHIFT_DOWN | Shift grid downward |
 
 ### Risk Score Breakdown
 
@@ -112,34 +161,47 @@ Settings are saved to `.env`. Stop with `Ctrl+C`.
 | `LLM_PROVIDER` | `anthropic` | LLM provider (`anthropic` / `openai`) |
 | `LLM_MODEL` | auto | Model name (`claude-sonnet-4-20250514` / `gpt-4o`) |
 | `LLM_TRIGGER_SCORE` | `55` | Minimum score to trigger LLM judgment |
+| `MULTI_AGENT_MODE` | `true` | Multi-agent consensus mode (`true` / `false`) |
 
 ## File Structure
 
 ```
 src/
-├── main_agent.py        # Entry point, state machine, LLM judgment, Telegram alerts
+├── main_agent.py        # Entry point, state machine, Telegram alerts
+├── multi_agent.py       # Multi-agent consensus (4 specialists + coordinator)
+├── market_analyzer.py   # ATR/RSI/BB/Volume/EMA/ADX → risk score + trend detection
+├── grid_controller.py   # OKX Grid Bot API (start/widen/shift/pause/liquidate)
 ├── menu.py              # Arrow-key interactive menu (questionary)
-├── setup.py             # Setup wizard (legacy)
 ├── config.py            # .env loader + defaults
-├── market_analyzer.py   # ATR/RSI/BB/Volume analysis → risk score
-├── grid_controller.py   # OKX Grid Bot API control (start/widen/pause/liquidate)
 └── requirements.txt     # Dependencies
 ```
 
 ## Estimated LLM API Cost
 
-Based on 2-minute loop interval (21,600 loops/month). LLM is only called when risk score falls in the 55~80 range.
+Based on 2-minute loop interval (21,600 loops/month). Only called when risk score falls in the 55~80 range.
+Multi-agent mode uses **5 calls per judgment** (4 agents + 1 coordinator).
+
+**Multi-Agent Mode (default)**
+
+| Model | Stable (~5%) | Normal (~15%) | Volatile (~30%) |
+|-------|:----------:|:------------:|:--------------:|
+| Claude Haiku 4 | $0.88 | $2.64 | $5.28 |
+| GPT-4o Mini | $0.49 | $1.46 | $2.92 |
+| GPT-4o | $8.10 | $24.30 | $48.60 |
+| **Claude Sonnet 4** (default) | **$10.53** | **$31.59** | **$63.18** |
+
+**Single LLM Mode** (`MULTI_AGENT_MODE=false`)
 
 | Model | Stable (~5%) | Normal (~15%) | Volatile (~30%) |
 |-------|:----------:|:------------:|:--------------:|
 | Claude Haiku 4 | $0.18 | $0.53 | $1.06 |
 | GPT-4o Mini | $0.10 | $0.29 | $0.58 |
-| GPT-4.1 | $1.30 | $3.89 | $7.78 |
 | GPT-4o | $1.62 | $4.86 | $9.72 |
 | **Claude Sonnet 4** (default) | **$2.11** | **$6.32** | **$12.64** |
-| Claude Opus 4 | $10.53 | $31.59 | $63.18 |
 
-> Budget pick: **Haiku 4** / **GPT-4o Mini** (under $1/mo). Quality pick: **Sonnet 4** or above.
+> Multi-agent + budget: **Haiku 4** / **GPT-4o Mini** (under $3/mo).
+> Multi-agent + quality: **Sonnet 4** (~$32/mo normal market).
+> Cost saving: set `MULTI_AGENT_MODE=false` for single LLM mode.
 
 ## Caution
 
