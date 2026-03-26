@@ -40,12 +40,12 @@ When the score falls in an ambiguous range (55~80), the decision is delegated to
 ## Installation
 
 ```bash
-pip install -r files/requirements.txt
+pip install -r src/requirements.txt
 ```
 
 ## Configuration
 
-Edit `files/config.py`:
+Edit `src/config.py`:
 
 ```python
 # Required
@@ -97,7 +97,7 @@ DEMO_MODE    = True  # True = paper trading, False = live trading
 On first run, the interactive setup wizard launches automatically:
 
 ```bash
-cd files
+cd src
 python main_agent.py
 ```
 
@@ -129,7 +129,7 @@ Stop with `Ctrl+C`.
 ## File Structure
 
 ```
-files/
+src/
 ├── config.py            # Settings (API keys, trading params, thresholds)
 ├── main_agent.py        # Main loop, state machine, LLM judgment, Telegram alerts
 ├── market_analyzer.py   # ATR/RSI/BB/Volume analysis → risk score
