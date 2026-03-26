@@ -94,9 +94,35 @@ DEMO_MODE    = True  # True = 모의거래, False = 실거래
 
 ## 실행
 
+처음 실행하면 셋업 위저드가 자동으로 뜨는 다람쥐:
+
 ```bash
 cd files
 python main_agent.py
+```
+
+```
+╔══════════════════════════════════════════════════╗
+║         ❄️  Snowball Setup Wizard  ❄️            ║
+║         OKX Adaptive Grid Trading Agent          ║
+╚══════════════════════════════════════════════════╝
+
+─── OKX API 설정 ───────────────────────────────
+  API Key: ********
+  Secret Key: ********
+  Passphrase: ********
+  거래 모드 [demo/live] (기본: demo): demo
+
+─── LLM 설정 (리스크 판단용) ───────────────────
+  LLM 제공자 [anthropic/openai] (기본: anthropic): openai
+  LLM API Key: ********
+  ...
+```
+
+설정은 `.env` 파일에 저장되는 다람쥐. 나중에 다시 설정하려면:
+
+```bash
+python main_agent.py --setup
 ```
 
 `Ctrl+C`로 종료하는 다람쥐.

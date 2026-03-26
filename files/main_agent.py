@@ -5,6 +5,7 @@ OKX Adaptive Grid Agent 메인 루프.
 실행: python main_agent.py
 """
 
+import sys
 import time
 import json
 import asyncio
@@ -308,5 +309,18 @@ class GridAgent:
 
 # ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    import os
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+
+    # --setup 플래그이거나 .env 없으면 셋업 위저드 실행
+    if "--setup" in sys.argv or not os.path.exists(env_path):
+        from setup import run_setup
+        run_setup()
+        if "--setup" in sys.argv:
+            sys.exit(0)
+        # 셋업 후 config 다시 로드
+        print("\n설정 완료! 에이전트를 시작합니다...\n")
+        os.execv(sys.executable, [sys.executable] + [__file__])
+
     agent = GridAgent()
     agent.run()

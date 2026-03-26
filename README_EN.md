@@ -94,9 +94,34 @@ DEMO_MODE    = True  # True = paper trading, False = live trading
 
 ## Run
 
+On first run, the interactive setup wizard launches automatically:
+
 ```bash
 cd files
 python main_agent.py
+```
+
+```
+╔══════════════════════════════════════════════════╗
+║         ❄️  Snowball Setup Wizard  ❄️            ║
+║         OKX Adaptive Grid Trading Agent          ║
+╚══════════════════════════════════════════════════╝
+
+─── OKX API Settings ───────────────────────────
+  API Key: ********
+  Secret Key: ********
+  ...
+
+─── LLM Settings ───────────────────────────────
+  LLM Provider [anthropic/openai] (default: anthropic): openai
+  LLM API Key: ********
+  ...
+```
+
+Settings are saved to a `.env` file. To reconfigure later:
+
+```bash
+python main_agent.py --setup
 ```
 
 Stop with `Ctrl+C`.
