@@ -127,8 +127,12 @@ class MarketAnalyzer:
         avg_gain = self._ema(gains,  RSI_PERIOD)[-1]
         avg_loss = self._ema(losses, RSI_PERIOD)[-1]
 
-        rs  = avg_gain / (avg_loss + 1e-9)
-        rsi = 100 - 100 / (1 + rs)
+        # 변동 없으면 RSI=50 (중립)
+        if avg_gain < 1e-9 and avg_loss < 1e-9:
+            rsi = 50.0
+        else:
+            rs  = avg_gain / (avg_loss + 1e-9)
+            rsi = 100 - 100 / (1 + rs)
 
         # 과매수(>75) 또는 과매도(<25)일수록 점수 높음
         if rsi > RSI_OVERBOUGHT:
@@ -141,20 +145,27 @@ class MarketAnalyzer:
         return round(min(25.0, score), 1), round(rsi, 1)
 
     def _bollinger_score(self, closes):
-        """볼린저밴드 폭 급팽창 → 최대 25점"""
+        """볼린저밴드 폭 급팽창 → 최대 25점 (1분봉 적응형 임계값)"""
         bb_closes = closes[-BOLLINGER_PERIOD:]
         mean  = float(np.mean(bb_closes))
         std   = float(np.std(bb_closes))
         width = (std * BOLLINGER_STD * 2) / (mean + 1e-9)   # 가격 대비 밴드 폭
 
-        # 볼린저밴드 폭 기준: 정상 ~2%, 위험 ~6% 이상
-        score = min(25.0, max(0.0, (width - 0.02) / 0.04 * 25.0))
+        # 타임프레임 적응형: 전체 캔들의 평균 변동폭으로 기준선 산출
+        all_returns = np.abs(np.diff(closes)) / (closes[:-1] + 1e-9)
+        baseline = float(np.mean(all_returns)) * BOLLINGER_PERIOD
+        # 기준선이 너무 작으면 최소값 보장 (일봉 기준 ~0.02)
+        threshold_low = max(baseline * 0.5, 0.001)
+        threshold_high = max(baseline * 2.0, threshold_low * 3)
+
+        score = min(25.0, max(0.0, (width - threshold_low) / (threshold_high - threshold_low + 1e-9) * 25.0))
         return round(score, 1), round(width * 100, 2)         # width를 %로 반환
 
     def _volume_score(self, volumes):
-        """거래량 급등 여부 → 최대 20점"""
+        """거래량 급등 여부 → 최대 20점 (3캔들 롤링 평균)"""
         avg = float(np.mean(volumes[-30:]))
-        cur = float(volumes[-1])
+        # 단일 캔들 노이즈 방지: 최근 3개 캔들 평균
+        cur = float(np.mean(volumes[-3:])) if len(volumes) >= 3 else float(volumes[-1])
         ratio = cur / (avg + 1e-9)
 
         score = min(20.0, max(0.0, (ratio - 1.0) / (VOLUME_SPIKE_MULTIPLIER - 1.0) * 20.0))
