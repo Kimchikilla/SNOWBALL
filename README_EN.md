@@ -125,3 +125,7 @@ src/
 - Test thoroughly with `DEMO_MODE = True` before switching to live trading
 - API keys are stored in `.env` and managed via `.gitignore`
 - Auto-liquidation triggers at `MAX_LOSS_PERCENT` (default 15%)
+
+## Disclaimer
+
+> **This software is not financial advice.** All financial losses arising from the use of this program are solely the responsibility of the user. Cryptocurrency trading carries the risk of losing your principal, and past returns do not guarantee future results. Only invest what you can afford to lose.
