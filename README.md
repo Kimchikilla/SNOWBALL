@@ -141,8 +141,8 @@ python main_agent.py
 | `GRID_MODE` | `arithmetic` | 그리드 모드 (`arithmetic` / `geometric`) |
 | `LOOP_INTERVAL_SEC` | `120` | 메인 루프 실행 간격 (초) |
 | `MAX_LOSS_PERCENT` | `15.0` | 손절 기준 (진입가 대비 %) |
-| `LLM_PROVIDER` | `anthropic` | LLM 제공자 (`anthropic` / `openai`) |
-| `LLM_MODEL` | 자동 | 모델명 (`claude-sonnet-4-20250514` / `gpt-4o`) |
+| `LLM_PROVIDER` | `anthropic` | LLM 제공자 (`anthropic` / `openai` / `grok` / `gemini`) |
+| `LLM_MODEL` | 자동 | 모델명 (제공자별 자동 선택) |
 | `LLM_TRIGGER_SCORE` | `55` | LLM 판단 요청 최소 점수 |
 | `MULTI_AGENT_MODE` | `true` | 멀티 에이전트 합의 모드 (`true` / `false`) |
 
@@ -159,6 +159,15 @@ src/
 └── requirements.txt     # 의존성
 ```
 
+## 지원 LLM 제공자
+
+| 제공자 | 모델 | API 방식 |
+|--------|------|----------|
+| **Anthropic (Claude)** | Sonnet 4, Opus 4, Haiku 4 | `anthropic` SDK |
+| **OpenAI (GPT)** | GPT-4o, GPT-4o Mini, GPT-4.1 | `openai` SDK |
+| **xAI (Grok)** | Grok 3 Mini, Grok 3 | `openai` SDK (호환) |
+| **Google (Gemini)** | 2.5 Flash, 2.5 Pro, 2.0 Flash | `google-genai` SDK |
+
 ## 예상 LLM API 비용
 
 2분 간격 루프 기준 (21,600회/월), 리스크 스코어 55~80 구간에서만 호출하는 다람쥐.
@@ -170,6 +179,8 @@ src/
 |------|:-----------:|:----------:|:------------:|
 | Claude Haiku 4 | $0.88 | $2.64 | $5.28 |
 | GPT-4o Mini | $0.49 | $1.46 | $2.92 |
+| Grok 3 Mini | $0.49 | $1.46 | $2.92 |
+| Gemini 2.5 Flash | $0.41 | $1.22 | $2.43 |
 | GPT-4o | $8.10 | $24.30 | $48.60 |
 | **Claude Sonnet 4** (기본) | **$10.53** | **$31.59** | **$63.18** |
 
@@ -179,10 +190,12 @@ src/
 |------|:-----------:|:----------:|:------------:|
 | Claude Haiku 4 | $0.18 | $0.53 | $1.06 |
 | GPT-4o Mini | $0.10 | $0.29 | $0.58 |
+| Grok 3 Mini | $0.10 | $0.29 | $0.58 |
+| Gemini 2.5 Flash | $0.08 | $0.24 | $0.49 |
 | GPT-4o | $1.62 | $4.86 | $9.72 |
 | **Claude Sonnet 4** (기본) | **$2.11** | **$6.32** | **$12.64** |
 
-> 멀티 에이전트 + 가성비: **Haiku 4** / **GPT-4o Mini** 추천하는 다람쥐 (월 $3 이하).
+> 멀티 에이전트 + 가성비: **Haiku 4** / **GPT-4o Mini** / **Grok 3 Mini** / **Gemini 2.5 Flash** 추천하는 다람쥐 (월 $3 이하).
 > 멀티 에이전트 + 판단 품질: **Sonnet 4** 추천하는 다람쥐 (보통장 ~$32).
 > 비용 절약: `MULTI_AGENT_MODE=false`로 단일 LLM 모드 사용하는 다람쥐.
 

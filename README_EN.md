@@ -158,8 +158,8 @@ Settings are saved to `.env`. Stop with `Ctrl+C`.
 | `GRID_MODE` | `arithmetic` | Grid mode (`arithmetic` / `geometric`) |
 | `LOOP_INTERVAL_SEC` | `120` | Main loop interval (seconds) |
 | `MAX_LOSS_PERCENT` | `15.0` | Stop-loss threshold (% from entry) |
-| `LLM_PROVIDER` | `anthropic` | LLM provider (`anthropic` / `openai`) |
-| `LLM_MODEL` | auto | Model name (`claude-sonnet-4-20250514` / `gpt-4o`) |
+| `LLM_PROVIDER` | `anthropic` | LLM provider (`anthropic` / `openai` / `grok` / `gemini`) |
+| `LLM_MODEL` | auto | Model name (auto-selected per provider) |
 | `LLM_TRIGGER_SCORE` | `55` | Minimum score to trigger LLM judgment |
 | `MULTI_AGENT_MODE` | `true` | Multi-agent consensus mode (`true` / `false`) |
 
@@ -176,6 +176,15 @@ src/
 └── requirements.txt     # Dependencies
 ```
 
+## Supported LLM Providers
+
+| Provider | Models | API |
+|----------|--------|-----|
+| **Anthropic (Claude)** | Sonnet 4, Opus 4, Haiku 4 | `anthropic` SDK |
+| **OpenAI (GPT)** | GPT-4o, GPT-4o Mini, GPT-4.1 | `openai` SDK |
+| **xAI (Grok)** | Grok 3 Mini, Grok 3 | `openai` SDK (compatible) |
+| **Google (Gemini)** | 2.5 Flash, 2.5 Pro, 2.0 Flash | `google-genai` SDK |
+
 ## Estimated LLM API Cost
 
 Based on 2-minute loop interval (21,600 loops/month). Only called when risk score falls in the 55~80 range.
@@ -187,6 +196,8 @@ Multi-agent mode uses **5 calls per judgment** (4 agents + 1 coordinator).
 |-------|:----------:|:------------:|:--------------:|
 | Claude Haiku 4 | $0.88 | $2.64 | $5.28 |
 | GPT-4o Mini | $0.49 | $1.46 | $2.92 |
+| Grok 3 Mini | $0.49 | $1.46 | $2.92 |
+| Gemini 2.5 Flash | $0.41 | $1.22 | $2.43 |
 | GPT-4o | $8.10 | $24.30 | $48.60 |
 | **Claude Sonnet 4** (default) | **$10.53** | **$31.59** | **$63.18** |
 
@@ -196,10 +207,12 @@ Multi-agent mode uses **5 calls per judgment** (4 agents + 1 coordinator).
 |-------|:----------:|:------------:|:--------------:|
 | Claude Haiku 4 | $0.18 | $0.53 | $1.06 |
 | GPT-4o Mini | $0.10 | $0.29 | $0.58 |
+| Grok 3 Mini | $0.10 | $0.29 | $0.58 |
+| Gemini 2.5 Flash | $0.08 | $0.24 | $0.49 |
 | GPT-4o | $1.62 | $4.86 | $9.72 |
 | **Claude Sonnet 4** (default) | **$2.11** | **$6.32** | **$12.64** |
 
-> Multi-agent + budget: **Haiku 4** / **GPT-4o Mini** (under $3/mo).
+> Multi-agent + budget: **Haiku 4** / **GPT-4o Mini** / **Grok 3 Mini** / **Gemini 2.5 Flash** (under $3/mo).
 > Multi-agent + quality: **Sonnet 4** (~$32/mo normal market).
 > Cost saving: set `MULTI_AGENT_MODE=false` for single LLM mode.
 
