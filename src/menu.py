@@ -505,10 +505,21 @@ def _call_llm_for_grid(env: dict, market: dict, budget: float) -> dict:
                 messages=[{"role": "user", "content": prompt}]
             )
             raw = resp.content[0].text.strip()
-        else:
+        elif provider == "gemini":
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            default_model = model or "gemini-2.5-flash"
+            resp = client.models.generate_content(
+                model=default_model,
+                contents=prompt,
+                config={"max_output_tokens": 300},
+            )
+            raw = resp.text.strip()
+        else:  # openai, grok (OpenAI 호환)
             import openai
-            client = openai.OpenAI(api_key=api_key)
-            default_model = model or "gpt-4o"
+            base_url = "https://api.x.ai/v1" if provider == "grok" else None
+            client = openai.OpenAI(api_key=api_key, base_url=base_url)
+            default_model = model or ("grok-3-mini" if provider == "grok" else "gpt-4o")
             resp = client.chat.completions.create(
                 model=default_model,
                 max_tokens=300,
@@ -625,6 +636,8 @@ def setup_llm(env: dict):
             choices=[
                 Choice("Anthropic (Claude)", value="anthropic"),
                 Choice("OpenAI (GPT)", value="openai"),
+                Choice("xAI (Grok)", value="grok"),
+                Choice("Google (Gemini)", value="gemini"),
             ],
             style=STYLE,
         ).ask()
@@ -651,11 +664,22 @@ def setup_llm(env: dict):
             Choice("Claude Opus 4", value="claude-opus-4-20250514"),
             Choice("Claude Haiku 4 (경량)", value="claude-haiku-4-20250414"),
         ]
-    else:
+    elif provider == "openai":
         models = [
             Choice("GPT-4o (추천)", value="gpt-4o"),
             Choice("GPT-4o Mini (경량)", value="gpt-4o-mini"),
             Choice("GPT-4.1", value="gpt-4.1"),
+        ]
+    elif provider == "grok":
+        models = [
+            Choice("Grok 3 Mini (추천)", value="grok-3-mini"),
+            Choice("Grok 3", value="grok-3"),
+        ]
+    else:  # gemini
+        models = [
+            Choice("Gemini 2.5 Flash (추천)", value="gemini-2.5-flash"),
+            Choice("Gemini 2.5 Pro", value="gemini-2.5-pro"),
+            Choice("Gemini 2.0 Flash (경량)", value="gemini-2.0-flash"),
         ]
 
     try:

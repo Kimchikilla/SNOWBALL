@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import anthropic
 import openai
+from google import genai
 
 from config import LLM_PROVIDER, LLM_API_KEY, LLM_MODEL
 
@@ -131,6 +132,8 @@ class MultiAgentJudge:
     DEFAULT_MODELS = {
         "anthropic": "claude-sonnet-4-20250514",
         "openai": "gpt-4o",
+        "grok": "grok-3-mini",
+        "gemini": "gemini-2.5-flash",
     }
 
     def __init__(self):
@@ -147,6 +150,13 @@ class MultiAgentJudge:
                 self.client = anthropic.Anthropic(api_key=LLM_API_KEY)
             elif self.provider == "openai":
                 self.client = openai.OpenAI(api_key=LLM_API_KEY)
+            elif self.provider == "grok":
+                self.client = openai.OpenAI(
+                    api_key=LLM_API_KEY,
+                    base_url="https://api.x.ai/v1",
+                )
+            elif self.provider == "gemini":
+                self.client = genai.Client(api_key=LLM_API_KEY)
             else:
                 print(f"[MultiAgent] 미지원 provider: {self.provider}")
                 return
@@ -318,7 +328,14 @@ class MultiAgentJudge:
                 messages=[{"role": "user", "content": prompt}]
             )
             return resp.content[0].text.strip()
-        else:
+        elif self.provider == "gemini":
+            resp = self.client.models.generate_content(
+                model=self.model,
+                contents=f"{system}\n\n{prompt}",
+                config={"max_output_tokens": 200},
+            )
+            return resp.text.strip()
+        else:  # openai, grok (OpenAI 호환)
             resp = self.client.chat.completions.create(
                 model=self.model,
                 max_tokens=200,

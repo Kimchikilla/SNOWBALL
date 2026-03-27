@@ -142,6 +142,8 @@ def run_setup():
     env["LLM_PROVIDER"] = pick("LLM 제공자", [
         ("anthropic", "Anthropic (Claude)"),
         ("openai", "OpenAI (GPT)"),
+        ("grok", "xAI (Grok)"),
+        ("gemini", "Google (Gemini)"),
     ], default_idx=0)
     print()
 
@@ -154,11 +156,22 @@ def run_setup():
             ("claude-opus-4-20250514", "Claude Opus 4"),
             ("claude-haiku-4-20250414", "Claude Haiku 4 (경량)"),
         ]
-    else:
+    elif env["LLM_PROVIDER"] == "openai":
         models = [
             ("gpt-4o", "GPT-4o (추천)"),
             ("gpt-4o-mini", "GPT-4o Mini (경량)"),
             ("gpt-4.1", "GPT-4.1"),
+        ]
+    elif env["LLM_PROVIDER"] == "grok":
+        models = [
+            ("grok-3-mini", "Grok 3 Mini (추천)"),
+            ("grok-3", "Grok 3"),
+        ]
+    else:  # gemini
+        models = [
+            ("gemini-2.5-flash", "Gemini 2.5 Flash (추천)"),
+            ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+            ("gemini-2.0-flash", "Gemini 2.0 Flash (경량)"),
         ]
 
     env["LLM_MODEL"] = pick("모델 선택", models, default_idx=0)
