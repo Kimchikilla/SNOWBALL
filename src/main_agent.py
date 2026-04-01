@@ -308,76 +308,127 @@ class GridAgent:
     def _tick(self):
         self.loop_count += 1
         ts = datetime.now().strftime("%H:%M:%S")
+        DIM = "\033[2m"
+        RESET = "\033[0m"
+        CYAN = "\033[96m"
+        YELLOW = "\033[93m"
+        GREEN = "\033[92m"
+        RED = "\033[91m"
+        MAGENTA = "\033[95m"
+        BOLD = "\033[1m"
+
+        print()
+        print(f"{CYAN}{BOLD}{'═' * 60}{RESET}")
+        print(f"{CYAN}{BOLD}  TICK #{self.loop_count}  [{ts}]  {SYMBOL}{RESET}")
+        print(f"{CYAN}{'═' * 60}{RESET}")
 
         # 1. 데이터 수집
+        print(f"\n{DIM}[1/9]{RESET} {BOLD}데이터 수집{RESET} ─ OKX API 호출 중...")
         try:
             candles = self.fetcher.get_candles()
             price   = self.fetcher.get_current_price()
         except Exception as e:
-            self._log(f"데이터 수집 실패: {e}", level="ERROR")
+            print(f"  {RED}✗ 실패: {e}{RESET}")
             return
 
         if price is None:
-            self._log("현재 가격을 가져올 수 없음 — 이번 틱 건너뜀", level="WARN")
+            print(f"  {RED}✗ 현재 가격 조회 불가 — 스킵{RESET}")
             return
-
         if not candles:
-            self._log("캔들 데이터가 비어있음 — 이번 틱 건너뜀", level="WARN")
+            print(f"  {RED}✗ 캔들 데이터 없음 — 스킵{RESET}")
             return
+        print(f"  {GREEN}✓{RESET} 현재가: {BOLD}{price:,.0f} USDT{RESET} | 캔들: {len(candles)}개")
 
         # 2. 리스크 분석
+        print(f"\n{DIM}[2/9]{RESET} {BOLD}리스크 분석{RESET} ─ ATR / RSI / BB / Volume / EMA / ADX")
         try:
             signal = self.analyzer.analyze(candles)
         except Exception as e:
-            self._log(f"리스크 분석 실패: {e}", level="ERROR")
+            print(f"  {RED}✗ 분석 실패: {e}{RESET}")
             return
 
-        # 3. 손절 조건 우선 체크
+        trend = getattr(signal, "trend", "N/A")
+        trend_strength = getattr(signal, "trend_strength", 0.0)
+        ema_s = getattr(signal, "ema_short", 0)
+        ema_l = getattr(signal, "ema_long", 0)
+        state_emoji = {"NORMAL": "🟢", "CAUTION": "🟡", "WARNING": "🟠", "EMERGENCY": "🔴"}
+        emoji = state_emoji.get(signal.state, "⚪")
+
+        print(f"  ┌────────────────────────────────────────────┐")
+        print(f"  │ ATR  = {signal.atr_score:>5.1f}/30  (현재={signal.atr_current:.1f} 평균={signal.atr_avg:.1f})")
+        print(f"  │ RSI  = {signal.rsi_score:>5.1f}/25  (RSI={signal.rsi:.1f})")
+        print(f"  │ BB   = {signal.bb_score:>5.1f}/25  (폭={signal.bb_width:.2f}%)")
+        print(f"  │ Vol  = {signal.volume_score:>5.1f}/20  (배율={signal.volume_ratio:.1f}x)")
+        print(f"  ├────────────────────────────────────────────┤")
+
+        trend_color = GREEN if trend == "BULLISH" else RED if trend == "BEARISH" else YELLOW
+        print(f"  │ 추세 = {trend_color}{BOLD}{trend}{RESET}  (ADX={trend_strength:.1f})")
+        print(f"  │ EMA  = 단기 {ema_s:,.1f} / 장기 {ema_l:,.1f}")
+        print(f"  ├────────────────────────────────────────────┤")
+
+        score_color = GREEN if signal.risk_score <= 30 else YELLOW if signal.risk_score <= 60 else RED
+        print(f"  │ {BOLD}총점 = {score_color}{signal.risk_score:.1f}/100{RESET}  →  {emoji} {signal.state}")
+        print(f"  └────────────────────────────────────────────┘")
+
+        # 3. 손절 체크
+        print(f"\n{DIM}[3/9]{RESET} {BOLD}손절 조건 체크{RESET} ─ 진입가 대비 {MAX_LOSS_PERCENT}% 이상 손실?")
         try:
             if self._check_stop_loss(price):
-                self._log(f"💀 손절 조건 도달 | price={price:,.0f}")
+                print(f"  {RED}{BOLD}✗ 손절 조건 도달! 긴급 청산 실행{RESET}")
                 self.controller.emergency_stop()
                 self.notifier.send(f"💀 손절 청산 | {SYMBOL} | 현재가={price:,.0f}")
                 return
         except Exception as e:
-            self._log(f"손절 체크 실패: {e}", level="ERROR")
+            print(f"  {RED}✗ 체크 실패: {e}{RESET}")
 
-        # 4. 체결 내역 감시 → 매수/매도 알림
+        if self.entry_price:
+            loss_pct = (self.entry_price - price) / self.entry_price * 100
+            print(f"  {GREEN}✓{RESET} 진입가={self.entry_price:,.0f} | 현재 손익={-loss_pct:+.2f}% | 한도={MAX_LOSS_PERCENT}%")
+        else:
+            print(f"  {GREEN}✓{RESET} 정상 (진입가 미설정)")
+
+        # 4. 체결 감시
+        print(f"\n{DIM}[4/9]{RESET} {BOLD}체결 내역 감시{RESET} ─ 신규 매수/매도 확인")
         try:
             self._check_fills(price)
+            print(f"  {GREEN}✓{RESET} 체결 확인 완료 (당일 매수={self.daily_buys} 매도={self.daily_sells})")
         except Exception as e:
-            self._log(f"체결 감시 실패: {e}", level="ERROR")
+            print(f"  {RED}✗ 감시 실패: {e}{RESET}")
 
-        # 5. 점수가 애매한 구간이면 LLM 판단 요청
+        # 5. 의사결정
+        print(f"\n{DIM}[5/9]{RESET} {BOLD}의사결정{RESET} ─ 추세 판단 → 리스크 스코어 → 에이전트 합의")
         action = "MAINTAIN"
         try:
             action = self._decide_action(signal, price)
         except Exception as e:
-            self._log(f"액션 결정 실패, MAINTAIN 유지: {e}", level="ERROR")
+            print(f"  {RED}✗ 결정 실패, MAINTAIN 유지: {e}{RESET}")
+
+        action_colors = {
+            "MAINTAIN": GREEN, "WIDEN": YELLOW, "PAUSE": YELLOW,
+            "STOP": RED, "REDUCE": YELLOW, "SHIFT_UP": CYAN, "SHIFT_DOWN": CYAN
+        }
+        ac = action_colors.get(action, RESET)
+        print(f"  {BOLD}→ 결정: {ac}{action}{RESET}")
 
         # 6. 액션 실행
+        print(f"\n{DIM}[6/9]{RESET} {BOLD}액션 실행{RESET} ─ {ac}{action}{RESET}")
         try:
             self._execute(action, signal, price)
+            print(f"  {GREEN}✓{RESET} 실행 완료")
         except Exception as e:
-            self._log(f"액션 실행 실패: {e}", level="ERROR")
+            print(f"  {RED}✗ 실행 실패: {e}{RESET}")
 
-        # 7. 일일 리포트 체크
+        # 7. 일일 리포트
+        print(f"\n{DIM}[7/9]{RESET} {BOLD}일일 리포트 체크{RESET} ─ {DAILY_REPORT_HOUR}시 발송")
         try:
             self._check_daily_report(price)
+            sent = "발송됨" if self._report_sent_date == datetime.now().strftime("%Y-%m-%d") else "미발송"
+            print(f"  {GREEN}✓{RESET} {sent}")
         except Exception as e:
-            self._log(f"일일 리포트 실패: {e}", level="ERROR")
+            print(f"  {RED}✗ 실패: {e}{RESET}")
 
-        # 8. 로그 출력
-        state_emoji = {"NORMAL": "🟢", "CAUTION": "🟡", "WARNING": "🟠", "EMERGENCY": "🔴"}
-        emoji = state_emoji.get(signal.state, "⚪")
-        trend = getattr(signal, "trend", "N/A")
-        trend_strength = getattr(signal, "trend_strength", 0.0)
-        self._log(
-            f"[{ts}] {emoji} {signal.reason} | 가격={price:,.0f} | "
-            f"추세={trend}(ADX={trend_strength:.1f}) | 액션={action}"
-        )
-
-        # 9. 상태 변화 시 텔레그램 알림
+        # 8. 상태 변화 알림
+        print(f"\n{DIM}[8/9]{RESET} {BOLD}상태 변화 감지{RESET} ─ {self.prev_state} → {signal.state}")
         try:
             if signal.state != self.prev_state:
                 if signal.state in NOTIFY_ON_STATES:
@@ -389,9 +440,22 @@ class GridAgent:
                         f"현재가: {price:,.0f}\n"
                         f"액션: {action}"
                     )
+                    print(f"  {YELLOW}⚡ 상태 변화 알림 발송: {self.prev_state} → {signal.state}{RESET}")
+                else:
+                    print(f"  {DIM}상태 변화 (알림 대상 아님): {self.prev_state} → {signal.state}{RESET}")
                 self.prev_state = signal.state
+            else:
+                print(f"  {DIM}변화 없음 ({signal.state}){RESET}")
         except Exception as e:
-            self._log(f"상태 알림 발송 실패: {e}", level="ERROR")
+            print(f"  {RED}✗ 알림 실패: {e}{RESET}")
+
+        # 9. 요약
+        print(f"\n{DIM}[9/9]{RESET} {BOLD}틱 완료{RESET}")
+        print(f"  {emoji} {signal.state} | {score_color}{signal.risk_score:.1f}/100{RESET} | "
+              f"{trend_color}{trend}(ADX={trend_strength:.1f}){RESET} | "
+              f"{ac}{action}{RESET} | {price:,.0f} USDT")
+        print(f"\n{DIM}  다음 틱까지 {LOOP_INTERVAL_SEC}초 대기...{RESET}")
+        print(f"{CYAN}{'─' * 60}{RESET}")
 
     # ─── 의사결정 ──────────────────────────────────────────
 
