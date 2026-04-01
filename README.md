@@ -152,6 +152,7 @@ python main_agent.py
 src/
 ├── main_agent.py        # 메인 진입점, 상태 머신, 텔레그램 알림
 ├── multi_agent.py       # 멀티 에이전트 합의 시스템 (4 전문가 + 조율자)
+├── cost_guard.py        # 비용 인식 시스템 (서킷 브레이커, 캐시, 예산 관리)
 ├── market_analyzer.py   # ATR/RSI/BB/거래량/EMA/ADX 분석 → 리스크 스코어 + 추세 감지
 ├── grid_controller.py   # OKX Grid Bot API 제어 (시작/확대/시프트/중단/청산)
 ├── menu.py              # 방향키 기반 인터랙티브 메뉴 (questionary)
@@ -198,6 +199,42 @@ src/
 > 멀티 에이전트 + 가성비: **Haiku 4** / **GPT-4o Mini** / **Grok 3 Mini** / **Gemini 2.5 Flash** 추천하는 다람쥐 (월 $3 이하).
 > 멀티 에이전트 + 판단 품질: **Sonnet 4** 추천하는 다람쥐 (보통장 ~$32).
 > 비용 절약: `MULTI_AGENT_MODE=false`로 단일 LLM 모드 사용하는 다람쥐.
+
+### 비용 인식 시스템 (CostGuard)
+
+[Claude Code 아키텍처](https://blog.aldente0630.com/insights/claude-code-architecture-analysis/)에서 영감받은 비용 최적화 시스템이다람쥐:
+
+**에러 복구 캐스케이드** — 항상 무료부터 시도하는 다람쥐:
+
+```
+LLM 호출 실패 시:
+  Level 0 (무료) → 캐시 재사용 / 마지막 액션 반복
+  Level 1 (무료) → 룰 베이스 폴백 (리스크 스코어 기반)
+  Level 2 (저비용) → 단일 LLM 호출 (멀티 에이전트 대신)
+  Level 3 (고비용) → 풀 멀티 에이전트 재시도
+```
+
+**서킷 브레이커** — 5회 연속 실패 시 5분간 LLM 호출 차단하는 다람쥐:
+
+```
+CLOSED ──5회 실패──→ OPEN ──5분 쿨다운──→ HALF_OPEN ──성공──→ CLOSED
+```
+
+**감소 수익 감지** — 3회 연속 동일 판단 시 API 호출 스킵하는 다람쥐:
+
+```
+MAINTAIN → MAINTAIN → MAINTAIN → 스킵! (비용 $0)
+시장 변동 감지 (스코어 5점+ 변화) → 자동 리셋 → 다시 호출
+```
+
+**응답 캐시** — 동일 시장 상황에서 중복 호출 방지하는 다람쥐:
+
+```
+시장 상태 해시 (스코어 5점 양자화 + 상태 + 추세)
+→ 5분 TTL 내 동일 조건 → 캐시 결과 반환 (API 호출 0)
+```
+
+**일일 예산 한도** — 일일 $5 초과 시 자동 룰 베이스 폴백하는 다람쥐.
 
 ## 주의사항
 
