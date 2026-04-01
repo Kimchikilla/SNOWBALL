@@ -30,6 +30,7 @@ from config import (
 from market_analyzer import MarketAnalyzer, MarketSignal
 from grid_controller import GridController
 from multi_agent import MultiAgentJudge, format_consensus_for_telegram
+from cost_guard import CostGuard
 
 
 # ──────────────────────────────────────────────────────────────
@@ -234,6 +235,7 @@ class GridAgent:
         self.notifier    = Notifier()
         self.llm_judge   = LLMJudge()
         self.multi_agent = MultiAgentJudge()
+        self.cost_guard  = CostGuard(model=LLM_MODEL, daily_budget=5.0)
 
         self.prev_state:  str   = "NORMAL"
         self.entry_price: Optional[float] = None   # 첫 진입 가격 (손절 기준)
@@ -449,8 +451,13 @@ class GridAgent:
         except Exception as e:
             print(f"  {RED}✗ 알림 실패: {e}{RESET}")
 
-        # 9. 요약
-        print(f"\n{DIM}[9/9]{RESET} {BOLD}틱 완료{RESET}")
+        # 9. 비용 현황
+        print(f"\n{DIM}[9/10]{RESET} {BOLD}비용 현황{RESET}")
+        for line in self.cost_guard.status_report().split("\n"):
+            print(f"  {DIM}{line}{RESET}")
+
+        # 10. 요약
+        print(f"\n{DIM}[10/10]{RESET} {BOLD}틱 완료{RESET}")
         print(f"  {emoji} {signal.state} | {score_color}{signal.risk_score:.1f}/100{RESET} | "
               f"{trend_color}{trend}(ADX={trend_strength:.1f}){RESET} | "
               f"{ac}{action}{RESET} | {price:,.0f} USDT")
@@ -475,22 +482,59 @@ class GridAgent:
                 self._log(f"하락 추세 감지 (ADX={trend_strength:.1f}) → REDUCE")
                 return "REDUCE"
 
-        # 점수가 애매한 구간 (CAUTION 경계) → 멀티 에이전트 합의 또는 단일 LLM
+        # 점수가 애매한 구간 (CAUTION 경계) → 비용 가드 체크 후 LLM 호출
         if LLM_TRIGGER_SCORE <= score <= SCORE_WARNING:
-            if MULTI_AGENT_MODE and self.multi_agent.available:
-                result = self.multi_agent.judge_with_detail(signal, price)
-                self._log(
-                    f"멀티 에이전트 합의: {result.final_action} "
-                    f"(동의율={result.agreement_rate:.0f}%, score={score})"
+            # CostGuard: 예산/서킷/캐시/감소수익 체크
+            should_call, reason, cached_action = self.cost_guard.pre_check(signal)
+
+            if not should_call:
+                self._log(f"💰 CostGuard 스킵: {reason} → {cached_action}")
+                return cached_action
+
+            # 실제 LLM 호출
+            try:
+                if MULTI_AGENT_MODE and self.multi_agent.available:
+                    result = self.multi_agent.judge_with_detail(signal, price)
+                    self._log(
+                        f"멀티 에이전트 합의: {result.final_action} "
+                        f"(동의율={result.agreement_rate:.0f}%, score={score})"
+                    )
+                    self.notifier.send(format_consensus_for_telegram(result))
+                    # 성공 기록 (멀티 에이전트 = 5회 호출)
+                    self.cost_guard.post_success(signal, result.final_action, num_calls=5)
+                    return result.final_action
+                else:
+                    llm_action = self.llm_judge.judge(signal, price)
+                    self._log(f"LLM 단독 판단: {llm_action} (score={score})")
+                    # 성공 기록 (단일 LLM = 1회 호출)
+                    self.cost_guard.post_success(signal, llm_action, num_calls=1)
+                    return llm_action
+            except Exception as e:
+                self._log(f"LLM 호출 실패: {e} → 에러 복구 캐스케이드", level="ERROR")
+                self.cost_guard.post_failure()
+
+                # 에러 복구 캐스케이드: 무료 → 저비용 → 고비용
+                level = self.cost_guard.recovery.next_strategy()
+                if level <= 1:
+                    # Level 0-1: 룰 베이스 폴백 (무료)
+                    fallback = self.cost_guard.recovery.rule_based_fallback(
+                        score, trend, trend_strength
+                    )
+                    self._log(f"복구 Level {level}: 룰 베이스 → {fallback}")
+                    return fallback
+                elif level == 2:
+                    # Level 2: 단일 LLM 재시도 (저비용)
+                    try:
+                        llm_action = self.llm_judge.judge(signal, price)
+                        self._log(f"복구 Level 2: 단일 LLM → {llm_action}")
+                        self.cost_guard.post_success(signal, llm_action, num_calls=1)
+                        return llm_action
+                    except Exception:
+                        pass
+                # Level 3 이상: 최종 룰 베이스 폴백
+                return self.cost_guard.recovery.rule_based_fallback(
+                    score, trend, trend_strength
                 )
-                # 합의 결과 텔레그램 발송
-                self.notifier.send(format_consensus_for_telegram(result))
-                return result.final_action
-            else:
-                # 멀티 에이전트 불가 시 단일 LLM 폴백
-                llm_action = self.llm_judge.judge(signal, price)
-                self._log(f"LLM 단독 판단: {llm_action} (score={score})")
-                return llm_action
 
         # 명확한 구간은 룰 베이스로 결정
         if score <= SCORE_CAUTION:
