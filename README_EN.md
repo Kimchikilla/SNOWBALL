@@ -169,6 +169,7 @@ Settings are saved to `.env`. Stop with `Ctrl+C`.
 src/
 ├── main_agent.py        # Entry point, state machine, Telegram alerts
 ├── multi_agent.py       # Multi-agent consensus (4 specialists + coordinator)
+├── cost_guard.py        # Cost-aware system (circuit breaker, cache, budget)
 ├── market_analyzer.py   # ATR/RSI/BB/Volume/EMA/ADX → risk score + trend detection
 ├── grid_controller.py   # OKX Grid Bot API (start/widen/shift/pause/liquidate)
 ├── menu.py              # Arrow-key interactive menu (questionary)
@@ -215,6 +216,42 @@ Multi-agent mode uses **5 calls per judgment** (4 agents + 1 coordinator).
 > Multi-agent + budget: **Haiku 4** / **GPT-4o Mini** / **Grok 3 Mini** / **Gemini 2.5 Flash** (under $3/mo).
 > Multi-agent + quality: **Sonnet 4** (~$32/mo normal market).
 > Cost saving: set `MULTI_AGENT_MODE=false` for single LLM mode.
+
+### CostGuard System
+
+Cost optimization system inspired by [Claude Code's architecture](https://blog.aldente0630.com/insights/claude-code-architecture-analysis/):
+
+**Error Recovery Cascade** — always try free options first:
+
+```
+On LLM failure:
+  Level 0 (free)  → cache reuse / repeat last action
+  Level 1 (free)  → rule-based fallback from risk score
+  Level 2 (cheap) → single LLM call instead of multi-agent
+  Level 3 (full)  → full multi-agent retry
+```
+
+**Circuit Breaker** — block LLM calls for 5 min after 5 consecutive failures:
+
+```
+CLOSED ──5 failures──→ OPEN ──5min cooldown──→ HALF_OPEN ──success──→ CLOSED
+```
+
+**Diminishing Returns** — skip API calls when 3 consecutive identical decisions:
+
+```
+MAINTAIN → MAINTAIN → MAINTAIN → Skip! ($0 cost)
+Market change detected (score Δ > 5pts) → auto-reset → call again
+```
+
+**Response Cache** — prevent duplicate calls for same market conditions:
+
+```
+Market state hash (5-point quantized score + state + trend)
+→ Same condition within 5min TTL → cached result (0 API calls)
+```
+
+**Daily Budget Limit** — auto rule-based fallback when daily $5 limit exceeded.
 
 ## Caution
 
