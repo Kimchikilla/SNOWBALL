@@ -21,7 +21,8 @@ Repeats the following cycle every 2 minutes:
 1. **Market Data Collection** - Fetches candle data from OKX API
 2. **Risk Score Calculation** (0~100) - Combines ATR, RSI, Bollinger Bands, and Volume
 3. **State Decision & Action Execution**
-4. **Telegram Alerts** (on state changes)
+4. **Telegram Tick Report** (sends status/PnL/indicator summary every tick)
+5. **Progress Bar Wait** (visual countdown to next tick)
 
 ### State Machine
 
@@ -100,7 +101,14 @@ pip install -r requirements.txt
 python main_agent.py
 ```
 
-An interactive arrow-key menu launches on start:
+On first run, an **initial setup wizard** starts automatically:
+
+1. OKX API setup (Key, Secret, Passphrase, Demo/Live)
+2. LLM setup (Provider, API Key, Model)
+3. Trading setup (symbol, total budget → AI auto-recommends grid budget/range/count)
+4. Telegram alerts (optional, auto-detects Chat ID)
+
+After setup, the main menu launches:
 
 ```
 ╔══════════════════════════════════════════════════╗
@@ -145,6 +153,30 @@ Configure each section individually:
 ```
 
 Settings are saved to `.env`. Stop with `Ctrl+C`.
+
+### Auto-Sync with Existing Grid Bots
+
+On agent start, if a grid bot is already running on OKX for the configured symbol, the agent **auto-detects and syncs** with it — no duplicate bots. If none exists, a new grid bot is created. If balance is insufficient, the agent shows the cause and solution, then exits cleanly.
+
+### AI Auto Grid Setup
+
+Just enter your total budget — the AI analyzes market data and recommends **budget allocation + grid range/count/mode** all at once. User confirms before applying.
+
+### Telegram Alerts
+
+- **Every tick**: status/score/trend/price/action/PnL summary
+- **EMERGENCY**: 4x repeated alerts at 10-second intervals
+- **State changes**: immediate notification
+- **Daily report**: PnL and fill summary at scheduled time
+- **Setup verification**: auto Bot Token validation + Chat ID auto-detection + test message
+
+### Wait Time Visualization
+
+Visual progress bar countdown between ticks:
+
+```
+  ⏳ ████████████████░░░░░░░░░░░░░░░░░░░░░░░░  42.5% (next tick in 1:09)
+```
 
 ### Configurable Parameters
 

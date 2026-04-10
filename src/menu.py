@@ -103,10 +103,87 @@ def is_configured() -> bool:
     return bool(env.get("OKX_API_KEY") and env.get("LLM_API_KEY"))
 
 
+# ─── 초기 설정 위자드 ──────────────────────────────────────
+
+def initial_setup_wizard():
+    """필수 설정이 없을 때 자동 실행되는 초기 설정 위자드."""
+    env = load_env()
+
+    header("초기 설정")
+    print("  처음 실행이시군요! 필수 설정을 순서대로 진행합니다.")
+    print()
+
+    # ── Step 1: OKX API ──
+    print("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("  📌 Step 1/3 — OKX API 설정")
+    print("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print()
+    setup_okx(env)
+
+    if not env.get("OKX_API_KEY"):
+        print("\n  ⚠ OKX API 설정이 필요합니다. 다시 시도해주세요.")
+        pause()
+        return False
+
+    # ── Step 2: LLM ──
+    header("초기 설정")
+    print("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("  📌 Step 2/3 — LLM 설정")
+    print("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print()
+    setup_llm(env)
+
+    if not env.get("LLM_API_KEY"):
+        print("\n  ⚠ LLM API 설정이 필요합니다. 다시 시도해주세요.")
+        pause()
+        return False
+
+    # ── Step 3: 거래 설정 ──
+    header("초기 설정")
+    print("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("  📌 Step 3/3 — 거래 설정")
+    print("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print()
+    setup_trading(env)
+
+    # ── 텔레그램 (선택) ──
+    header("초기 설정")
+    try:
+        use_tg = questionary.confirm(
+            "텔레그램 알림도 지금 설정할까요? (나중에 해도 됩니다)",
+            default=False,
+            style=STYLE,
+        ).ask()
+    except (KeyboardInterrupt, EOFError):
+        use_tg = False
+
+    if use_tg:
+        setup_telegram(env)
+
+    # ── 완료 ──
+    header("초기 설정 완료")
+    print("  ✅ 모든 필수 설정이 완료되었습니다!")
+    print()
+    view_settings()
+    return True
+
+
 # ─── 메인 메뉴 ──────────────────────────────────────────
 
 def main_menu():
     try:
+        # 필수 설정이 없으면 초기 설정 위자드 자동 실행
+        if not is_configured():
+            try:
+                success = initial_setup_wizard()
+            except KeyboardInterrupt:
+                clear()
+                print("\n  👋 종료합니다.")
+                sys.exit(0)
+            if not success:
+                # 위자드 실패 시 일반 메뉴로 진입
+                pass
+
         while True:
             header()
             print_disclaimer()
@@ -290,10 +367,24 @@ def setup_trading(env: dict):
         return
     env["TOTAL_BUDGET"] = budget
 
+    # AI 자동 추천 (예산 배분 + 그리드 범위 모두 LLM이 결정)
+    print("\n  🤖 AI가 시세를 분석하고 최적 설정을 추천합니다...")
+    auto_result = _auto_grid_settings(env, symbol, float(budget))
+    if auto_result:
+        env.update(auto_result)
+        save_env(env)
+        print("\n  ✅ AI 추천 설정 저장 완료")
+        pause()
+        return
+
+    # AI 추천 실패 시 수동 입력 폴백
+    print("\n  ⚠ AI 추천 실패. 수동 입력으로 전환합니다.")
+    print()
+
     try:
         grid_budget = questionary.text(
             "그리드 예산 (USDT):",
-            default=env.get("GRID_BUDGET", "400"),
+            default=env.get("GRID_BUDGET", str(int(float(budget) * 0.4))),
             validate=lambda v: True if _is_number(v) else "숫자를 입력해주세요",
             style=STYLE,
         ).ask()
@@ -302,35 +393,8 @@ def setup_trading(env: dict):
     if grid_budget is None:
         return
     env["GRID_BUDGET"] = grid_budget
+    env["RESERVE_BUDGET"] = str(round(float(budget) - float(grid_budget), 2))
 
-    # 그리드 설정 방식 선택
-    try:
-        grid_method = questionary.select(
-            "그리드 범위 설정 방식",
-            choices=[
-                Choice("🤖 AI 자동 추천 (시세 분석 후 LLM이 설정)", value="auto"),
-                Choice("✏️  수동 입력", value="manual"),
-            ],
-            style=STYLE,
-        ).ask()
-    except (KeyboardInterrupt, EOFError):
-        return
-    if grid_method is None:
-        return
-
-    if grid_method == "auto":
-        auto_result = _auto_grid_settings(env, symbol, float(budget))
-        if auto_result:
-            env.update(auto_result)
-            save_env(env)
-            print("\n  ✅ AI 추천 설정 저장 완료")
-            pause()
-            return
-        else:
-            print("\n  ⚠ AI 추천 실패. 수동 입력으로 전환합니다.")
-            print()
-
-    # 수동 입력
     try:
         lower = questionary.text(
             "그리드 하단 가격:",
@@ -469,7 +533,7 @@ def _call_llm_for_grid(env: dict, market: dict, budget: float) -> dict:
         return {}
 
     prompt = f"""당신은 암호화폐 그리드 트레이딩 전문가입니다.
-아래 시장 데이터를 분석하고 최적의 그리드 설정을 JSON으로 추천해주세요.
+아래 시장 데이터를 분석하고 최적의 그리드 설정과 예산 배분을 JSON으로 추천해주세요.
 
 === 시장 데이터 ===
 심볼: {market['symbol']}
@@ -485,6 +549,8 @@ def _call_llm_for_grid(env: dict, market: dict, budget: float) -> dict:
 총 예산: {budget:,.0f} USDT
 
 === 추천 규칙 ===
+- grid_budget: 그리드에 투입할 금액 (총 예산의 30~70%, 변동성 높으면 비율 낮게)
+- reserve_budget: 나머지는 예비 자금 (급락 시 추가 매수, 리밸런싱용)
 - 그리드 하단/상단은 30일 범위와 현재 변동성을 고려해서 설정
 - 너무 좁으면 수익 기회 적고, 너무 넓으면 자금 효율 떨어짐
 - 변동성 높으면 간격 넓게, 낮으면 좁게
@@ -492,7 +558,7 @@ def _call_llm_for_grid(env: dict, market: dict, budget: float) -> dict:
 - arithmetic vs geometric: 가격대가 높고 변동 큰 자산은 geometric 추천
 
 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트 없이 JSON만:
-{{"grid_lower": 숫자, "grid_upper": 숫자, "grid_count": 정수, "grid_mode": "arithmetic"|"geometric", "reason": "추천 이유 한줄"}}"""
+{{"grid_budget": 숫자, "reserve_budget": 숫자, "grid_lower": 숫자, "grid_upper": 숫자, "grid_count": 정수, "grid_mode": "arithmetic"|"geometric", "reason": "추천 이유 한줄"}}"""
 
     try:
         if provider == "anthropic":
@@ -539,7 +605,7 @@ def _call_llm_for_grid(env: dict, market: dict, budget: float) -> dict:
             print(f"    ⚠ LLM 응답 JSON 파싱 오류: {e}")
             return {}
 
-        required_keys = ("grid_lower", "grid_upper", "grid_count")
+        required_keys = ("grid_budget", "grid_lower", "grid_upper", "grid_count")
         missing = [k for k in required_keys if k not in parsed]
         if missing:
             print(f"    ⚠ LLM 응답에 필수 키 누락: {missing}")
@@ -584,25 +650,31 @@ def _auto_grid_settings(env: dict, symbol: str, budget: float) -> dict:
     if not result or "grid_lower" not in result:
         return {}
 
+    grid_budget = result.get("grid_budget", budget * 0.4)
+    reserve_budget = result.get("reserve_budget", budget - grid_budget)
     lower = result["grid_lower"]
     upper = result["grid_upper"]
     count = result["grid_count"]
     mode = result.get("grid_mode", "arithmetic")
     reason = result.get("reason", "")
     spread = (upper - lower) / count
+    grid_pct = grid_budget / budget * 100
 
     print()
-    print("  ┌──────────────────────────────────────────┐")
-    print(f"  │ 🤖 AI 추천 그리드 설정                    │")
-    print("  ├──────────────────────────────────────────┤")
-    print(f"  │ 하단 가격  : {lower:>15,.2f} USDT       │")
-    print(f"  │ 상단 가격  : {upper:>15,.2f} USDT       │")
-    print(f"  │ 그리드 개수 : {count:>15}개            │")
-    print(f"  │ 그리드 간격 : {spread:>15,.2f} USDT       │")
-    print(f"  │ 모드       : {mode:>15}              │")
-    print("  ├──────────────────────────────────────────┤")
-    print(f"  │ 사유: {reason:<36}│")
-    print("  └──────────────────────────────────────────┘")
+    print("  ┌──────────────────────────────────────────────┐")
+    print(f"  │ 🤖 AI 추천 설정                               │")
+    print("  ├──────────────────────────────────────────────┤")
+    print(f"  │ 그리드 예산  : {grid_budget:>12,.0f} USDT ({grid_pct:.0f}%)     │")
+    print(f"  │ 예비 자금   : {reserve_budget:>12,.0f} USDT ({100-grid_pct:.0f}%)     │")
+    print("  ├──────────────────────────────────────────────┤")
+    print(f"  │ 하단 가격   : {lower:>15,.2f} USDT          │")
+    print(f"  │ 상단 가격   : {upper:>15,.2f} USDT          │")
+    print(f"  │ 그리드 개수  : {count:>15}개               │")
+    print(f"  │ 그리드 간격  : {spread:>15,.2f} USDT          │")
+    print(f"  │ 모드        : {mode:>15}                 │")
+    print("  ├──────────────────────────────────────────────┤")
+    print(f"  │ 사유: {reason:<40}│")
+    print("  └──────────────────────────────────────────────┘")
     print()
 
     try:
@@ -618,6 +690,8 @@ def _auto_grid_settings(env: dict, symbol: str, budget: float) -> dict:
         return {}
 
     return {
+        "GRID_BUDGET": str(round(grid_budget, 2)),
+        "RESERVE_BUDGET": str(round(reserve_budget, 2)),
         "GRID_LOWER": str(lower),
         "GRID_UPPER": str(upper),
         "GRID_COUNT": str(count),
@@ -726,7 +800,7 @@ def setup_telegram(env: dict):
 
     try:
         token = questionary.text(
-            "Bot Token:",
+            "Bot Token (@BotFather에서 발급):",
             default=env.get("TELEGRAM_TOKEN", ""),
             style=STYLE,
         ).ask()
@@ -736,14 +810,26 @@ def setup_telegram(env: dict):
         return
     env["TELEGRAM_TOKEN"] = token
 
+    # 봇 토큰 유효성 먼저 확인
+    print("\n  🔍 봇 토큰 확인 중...")
+    base = f"https://api.telegram.org/bot{token}"
     try:
-        chat_id = questionary.text(
-            "Chat ID:",
-            default=env.get("TELEGRAM_CHAT_ID", ""),
-            style=STYLE,
-        ).ask()
-    except (KeyboardInterrupt, EOFError):
+        resp = httpx.get(f"{base}/getMe", timeout=10)
+        data = resp.json()
+        if not data.get("ok"):
+            print(f"  ❌ Bot Token이 유효하지 않습니다: {data.get('description', '')}")
+            print(f"     @BotFather에서 토큰을 다시 확인해주세요.")
+            pause()
+            return
+        bot_name = data["result"].get("username", "unknown")
+        print(f"  ✅ 봇 확인: @{bot_name}")
+    except Exception as e:
+        print(f"  ❌ 봇 검증 실패: {e}")
+        pause()
         return
+
+    # Chat ID 자동 감지
+    chat_id = _detect_chat_id(token, env.get("TELEGRAM_CHAT_ID"))
     if chat_id is None:
         return
     env["TELEGRAM_CHAT_ID"] = chat_id
@@ -766,9 +852,184 @@ def setup_telegram(env: dict):
         return
     env["NOTIFY_ON_STATES"] = ",".join(notify_states)
 
-    save_env(env)
-    print("\n  ✅ 텔레그램 설정 저장 완료")
+    # 연결 테스트
+    print("\n  🔍 텔레그램 연결 테스트 중...")
+    test_ok, test_msg = _test_telegram(token, chat_id)
+
+    if test_ok:
+        print(f"  ✅ 테스트 메시지 발송 성공!")
+        print(f"  📱 텔레그램에서 메시지를 확인해주세요.")
+        save_env(env)
+        print("\n  ✅ 텔레그램 설정 저장 완료")
+    else:
+        print(f"  ❌ 테스트 실패: {test_msg}")
+        print()
+        try:
+            save_anyway = questionary.confirm(
+                "설정을 그래도 저장할까요?",
+                default=False,
+                style=STYLE,
+            ).ask()
+        except (KeyboardInterrupt, EOFError):
+            save_anyway = False
+        if save_anyway:
+            save_env(env)
+            print("\n  ✅ 텔레그램 설정 저장 완료 (테스트 미통과)")
+        else:
+            print("\n  ⚠ 텔레그램 설정이 저장되지 않았습니다.")
     pause()
+
+
+def _detect_chat_id(token: str, existing_chat_id: str = None) -> str | None:
+    """텔레그램 봇에게 메시지를 보내게 해서 Chat ID를 자동 감지."""
+    import time as _time
+    base = f"https://api.telegram.org/bot{token}"
+
+    # 기존 Chat ID가 있으면 그대로 쓸지 물어봄
+    if existing_chat_id:
+        try:
+            reuse = questionary.confirm(
+                f"기존 Chat ID ({existing_chat_id})를 그대로 사용할까요?",
+                default=True,
+                style=STYLE,
+            ).ask()
+        except (KeyboardInterrupt, EOFError):
+            return None
+        if reuse:
+            return existing_chat_id
+
+    # getUpdates offset 초기화 — 기존 메시지 무시하기 위해 현재까지의 update 소비
+    try:
+        resp = httpx.get(f"{base}/getUpdates", params={"limit": 1, "offset": -1, "timeout": 0}, timeout=10)
+        data = resp.json()
+        if data.get("ok") and data.get("result"):
+            last_id = data["result"][-1]["update_id"]
+            # 이 ID+1 부터가 새 메시지
+            flush_offset = last_id + 1
+        else:
+            flush_offset = 0
+    except Exception:
+        flush_offset = 0
+
+    print()
+    print("  ┌──────────────────────────────────────────────┐")
+    print("  │  📱 텔레그램에서 봇에게 아무 메시지나 보내주세요  │")
+    print("  │     (예: /start 또는 아무 텍스트)              │")
+    print("  │     60초 안에 보내주시면 자동으로 감지합니다.    │")
+    print("  └──────────────────────────────────────────────┘")
+    print()
+    print("  ⏳ 메시지 대기 중...", end="", flush=True)
+
+    # 최대 60초 동안 폴링 (long polling 5초씩)
+    for i in range(12):
+        try:
+            resp = httpx.get(
+                f"{base}/getUpdates",
+                params={"limit": 10, "offset": flush_offset, "timeout": 5},
+                timeout=15,
+            )
+            data = resp.json()
+
+            if data.get("ok") and data.get("result"):
+                for update in data["result"]:
+                    msg = update.get("message", {})
+                    chat = msg.get("chat", {})
+                    chat_id = str(chat.get("id", ""))
+                    chat_name = chat.get("first_name", "") or chat.get("title", "")
+                    chat_type = chat.get("type", "")
+
+                    if chat_id:
+                        print(f"\r  ✅ Chat ID 감지 완료!                        ")
+                        print(f"     Chat ID  : {chat_id}")
+                        print(f"     이름     : {chat_name}")
+                        print(f"     타입     : {chat_type}")
+                        return chat_id
+        except httpx.TimeoutException:
+            pass
+        except Exception:
+            pass
+        print(".", end="", flush=True)
+
+    print(f"\r  ⚠ 60초 내에 메시지를 감지하지 못했습니다.        ")
+    print()
+
+    # 실패 시 수동 입력 폴백
+    try:
+        manual = questionary.text(
+            "Chat ID를 직접 입력해주세요 (빈칸이면 취소):",
+            style=STYLE,
+        ).ask()
+    except (KeyboardInterrupt, EOFError):
+        return None
+    if not manual:
+        return None
+    return manual
+
+
+def _test_telegram(token: str, chat_id: str) -> tuple[bool, str]:
+    """텔레그램 봇 토큰 검증 + 테스트 메시지 발송 + 수신 확인."""
+    base = f"https://api.telegram.org/bot{token}"
+
+    # 1. 봇 토큰 유효성 검증 (getMe)
+    try:
+        resp = httpx.get(f"{base}/getMe", timeout=10)
+        data = resp.json()
+        if not data.get("ok"):
+            return False, f"Bot Token이 유효하지 않습니다: {data.get('description', 'unknown error')}"
+        bot_name = data["result"].get("username", "unknown")
+        print(f"  ✓ 봇 확인: @{bot_name}")
+    except httpx.TimeoutException:
+        return False, "Telegram API 응답 타임아웃"
+    except Exception as e:
+        return False, f"봇 검증 요청 실패: {e}"
+
+    # 2. 테스트 메시지 발송
+    test_text = "🔔 Snowball Agent 텔레그램 연결 테스트\n\n이 메시지가 보이면 설정이 정상입니다!"
+    try:
+        resp = httpx.post(
+            f"{base}/sendMessage",
+            json={"chat_id": chat_id, "text": test_text},
+            timeout=10,
+        )
+        data = resp.json()
+        if not data.get("ok"):
+            err = data.get("description", "unknown error")
+            if "chat not found" in err.lower():
+                return False, f"Chat ID가 잘못되었습니다. 봇에게 먼저 /start 메시지를 보내주세요."
+            return False, f"메시지 발송 실패: {err}"
+        print(f"  ✓ 테스트 메시지 발송 완료")
+    except httpx.TimeoutException:
+        return False, "메시지 발송 타임아웃"
+    except Exception as e:
+        return False, f"메시지 발송 요청 실패: {e}"
+
+    # 3. 수신 확인 (getUpdates로 봇이 받은 최근 메시지 확인)
+    try:
+        resp = httpx.get(
+            f"{base}/getUpdates",
+            params={"limit": 5, "offset": -5},
+            timeout=10,
+        )
+        data = resp.json()
+        if data.get("ok") and data.get("result"):
+            # chat_id에서 온 메시지가 있는지 확인
+            found = False
+            for update in data["result"]:
+                msg = update.get("message", {})
+                if str(msg.get("chat", {}).get("id")) == str(chat_id):
+                    found = True
+                    break
+            if found:
+                print(f"  ✓ 수신 확인: Chat ID {chat_id}에서 메시지 수신 이력 있음")
+            else:
+                print(f"  ⚠ 수신 이력 없음 (봇에게 /start를 보낸 적 없을 수 있음)")
+                print(f"    → 메시지 발송은 성공했으니 텔레그램에서 확인해보세요")
+        else:
+            print(f"  ⚠ 수신 이력 조회 불가 (Webhook 모드일 수 있음)")
+    except Exception:
+        print(f"  ⚠ 수신 확인 스킵 (발송은 성공)")
+
+    return True, ""
 
 
 # ─── 고급 설정 ───────────────────────────────────────────

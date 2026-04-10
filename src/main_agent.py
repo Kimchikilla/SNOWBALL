@@ -17,16 +17,7 @@ import anthropic
 import openai
 from google import genai
 
-from config import (
-    OKX_BASE_URL, SYMBOL, DEMO_MODE,
-    CANDLE_INTERVAL, CANDLE_LOOKBACK,
-    LOOP_INTERVAL_SEC,
-    SCORE_CAUTION, SCORE_WARNING, SCORE_EMERGENCY,
-    MAX_LOSS_PERCENT,
-    LLM_TRIGGER_SCORE, LLM_PROVIDER, LLM_API_KEY, LLM_MODEL,
-    TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, NOTIFY_ON_STATES,
-    DAILY_REPORT_HOUR, MULTI_AGENT_MODE,
-)
+import config
 from market_analyzer import MarketAnalyzer, MarketSignal
 from grid_controller import GridController
 from multi_agent import MultiAgentJudge, format_consensus_for_telegram
@@ -38,12 +29,12 @@ class Notifier:
     """텔레그램 알림 발송"""
 
     def send(self, message: str):
-        if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        if not config.TELEGRAM_TOKEN or not config.TELEGRAM_CHAT_ID:
             print(f"[Notifier] (Telegram 미설정) {message}")
             return
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        url = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage"
         try:
-            httpx.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message}, timeout=10)
+            httpx.post(url, json={"chat_id": config.TELEGRAM_CHAT_ID, "text": message}, timeout=10)
         except httpx.TimeoutException:
             print(f"[Notifier] 텔레그램 발송 타임아웃")
         except Exception as e:
@@ -64,24 +55,24 @@ class LLMJudge:
     def __init__(self):
         self.available = False
         try:
-            self.provider = LLM_PROVIDER.lower()
-            self.model = LLM_MODEL or self.DEFAULT_MODELS.get(self.provider, "gpt-4o")
+            self.provider = config.LLM_PROVIDER.lower()
+            self.model = config.LLM_MODEL or self.DEFAULT_MODELS.get(self.provider, "gpt-4o")
 
-            if not LLM_API_KEY:
+            if not config.LLM_API_KEY:
                 print("[LLMJudge] API 키가 설정되지 않음 — LLM 판단 비활성화")
                 return
 
             if self.provider == "anthropic":
-                self.client = anthropic.Anthropic(api_key=LLM_API_KEY)
+                self.client = anthropic.Anthropic(api_key=config.LLM_API_KEY)
             elif self.provider == "openai":
-                self.client = openai.OpenAI(api_key=LLM_API_KEY)
+                self.client = openai.OpenAI(api_key=config.LLM_API_KEY)
             elif self.provider == "grok":
                 self.client = openai.OpenAI(
-                    api_key=LLM_API_KEY,
+                    api_key=config.LLM_API_KEY,
                     base_url="https://api.x.ai/v1",
                 )
             elif self.provider == "gemini":
-                self.client = genai.Client(api_key=LLM_API_KEY)
+                self.client = genai.Client(api_key=config.LLM_API_KEY)
             else:
                 print(f"[LLMJudge] 지원하지 않는 LLM provider: {self.provider} — LLM 판단 비활성화")
                 return
@@ -161,13 +152,13 @@ class OKXDataFetcher:
     """OKX Public API에서 캔들 데이터를 가져옵니다."""
 
     def __init__(self):
-        self.client = httpx.Client(base_url=OKX_BASE_URL, timeout=10)
+        self.client = httpx.Client(base_url=config.OKX_BASE_URL, timeout=10)
 
     def get_candles(self) -> list[dict]:
         try:
             resp = self.client.get(
                 "/api/v5/market/candles",
-                params={"instId": SYMBOL, "bar": CANDLE_INTERVAL, "limit": CANDLE_LOOKBACK}
+                params={"instId": config.SYMBOL, "bar": config.CANDLE_INTERVAL, "limit": config.CANDLE_LOOKBACK}
             )
             data = resp.json().get("data", [])
             if not data:
@@ -198,7 +189,7 @@ class OKXDataFetcher:
         try:
             resp = self.client.get(
                 "/api/v5/market/ticker",
-                params={"instId": SYMBOL}
+                params={"instId": config.SYMBOL}
             )
             return float(resp.json()["data"][0]["last"])
         except httpx.TimeoutException:
@@ -235,7 +226,7 @@ class GridAgent:
         self.notifier    = Notifier()
         self.llm_judge   = LLMJudge()
         self.multi_agent = MultiAgentJudge()
-        self.cost_guard  = CostGuard(model=LLM_MODEL, daily_budget=5.0)
+        self.cost_guard  = CostGuard(model=config.LLM_MODEL, daily_budget=5.0)
 
         self.prev_state:  str   = "NORMAL"
         self.entry_price: Optional[float] = None   # 첫 진입 가격 (손절 기준)
@@ -274,11 +265,105 @@ class GridAgent:
         """무한 루프 실행."""
         self._print_disclaimer()
         self._log("🚀 OKX Adaptive Grid Agent 시작")
-        self._log(f"   심볼: {SYMBOL} | 데모: {DEMO_MODE} | 간격: {LOOP_INTERVAL_SEC}초")
-        self.notifier.send(f"🚀 Grid Agent 시작 | {SYMBOL} | Demo={DEMO_MODE}")
+        self._log(f"   심볼: {config.SYMBOL} | 데모: {config.DEMO_MODE} | 간격: {config.LOOP_INTERVAL_SEC}초")
+        self.notifier.send(f"🚀 Grid Agent 시작 | {config.SYMBOL} | Demo={config.DEMO_MODE}")
 
-        # 초기 그리드 시작
-        self.controller.ensure_grid_running()
+        # 초기 그리드: 기존 봇 동기화 시도 → 없으면 새로 시작
+        resp = self.controller.ensure_grid_running()
+
+        GREEN = "\033[92m"
+        CYAN = "\033[96m"
+        RED = "\033[91m"
+        BOLD = "\033[1m"
+        RESET = "\033[0m"
+
+        if resp.get("status") == "synced":
+            # 기존 봇에 동기화 성공
+            print(f"\n{GREEN}{BOLD}{'═' * 56}{RESET}")
+            print(f"{GREEN}{BOLD}  ✅ 기존 그리드봇에 연결되었습니다{RESET}")
+            print(f"{GREEN}{'═' * 56}{RESET}")
+            print(f"  봇 ID    : {resp.get('bot_id')}")
+            print(f"  상태     : {resp.get('state')}")
+            print(f"  범위     : {resp.get('lower'):,.2f} ~ {resp.get('upper'):,.2f}")
+            print(f"  그리드   : {resp.get('grid_num')}개 ({resp.get('mode')})")
+            print(f"  투자금   : {resp.get('investment'):,.2f} USDT")
+            pnl = resp.get('total_pnl', 0)
+            pnl_color = GREEN if pnl >= 0 else RED
+            print(f"  현재 손익 : {pnl_color}{pnl:+,.2f} USDT{RESET}")
+            print(f"{GREEN}{'─' * 56}{RESET}")
+            print(f"  {CYAN}기존 설정에 맞춰 에이전트를 시작합니다.{RESET}\n")
+
+            # 진입가를 현재가로 세팅 (손절 기준)
+            entry = self.fetcher.get_current_price()
+            if entry:
+                self.entry_price = entry
+
+            pnl_emoji = "📈" if pnl >= 0 else "📉"
+            entry_str = f"{self.entry_price:,.2f}" if self.entry_price else "N/A"
+            self.notifier.send(
+                f"🔄 기존 그리드봇 연결 | {config.SYMBOL}\n"
+                f"{'─' * 28}\n"
+                f"봇 ID   : {resp.get('bot_id')}\n"
+                f"상태    : {resp.get('state')}\n"
+                f"모드    : {'Demo (모의거래)' if config.DEMO_MODE else '⚠ Live (실거래)'}\n"
+                f"{'─' * 28}\n"
+                f"범위    : {resp.get('lower'):,.2f} ~ {resp.get('upper'):,.2f}\n"
+                f"그리드  : {resp.get('grid_num')}개 ({resp.get('mode')})\n"
+                f"투자금  : {resp.get('investment'):,.2f} USDT\n"
+                f"현재가  : {entry_str} USDT\n"
+                f"{'─' * 28}\n"
+                f"{pnl_emoji} 손익: {pnl:+,.2f} USDT\n"
+                f"{'─' * 28}\n"
+                f"루프 간격: {config.LOOP_INTERVAL_SEC}초\n"
+                f"손절 기준: {config.MAX_LOSS_PERCENT}%"
+            )
+
+        elif resp.get("code") == "0":
+            # 새 봇 시작 성공
+            self._log("✅ 새 그리드봇 시작 성공")
+            self.notifier.send(
+                f"🚀 새 그리드봇 시작 | {config.SYMBOL}\n"
+                f"{'─' * 28}\n"
+                f"봇 ID   : {self.controller.bot_id}\n"
+                f"모드    : {'Demo (모의거래)' if config.DEMO_MODE else '⚠ Live (실거래)'}\n"
+                f"{'─' * 28}\n"
+                f"범위    : {config.GRID_LOWER:,.2f} ~ {config.GRID_UPPER:,.2f}\n"
+                f"그리드  : {config.GRID_COUNT}개 ({config.GRID_MODE})\n"
+                f"예산    : {config.GRID_BUDGET:,.2f} USDT\n"
+                f"{'─' * 28}\n"
+                f"루프 간격: {config.LOOP_INTERVAL_SEC}초\n"
+                f"손절 기준: {config.MAX_LOSS_PERCENT}%"
+            )
+
+        else:
+            # 시작 실패
+            error_msg = ""
+            if isinstance(resp.get("data"), list) and resp["data"]:
+                error_msg = resp["data"][0].get("sMsg", "")
+
+            print(f"\n{RED}{BOLD}{'═' * 56}{RESET}")
+            print(f"{RED}{BOLD}  ❌ 그리드봇 시작 실패{RESET}")
+            print(f"{RED}{'═' * 56}{RESET}")
+
+            if "Insufficient balance" in str(error_msg):
+                print(f"{RED}  원인: 잔고 부족 (Insufficient balance){RESET}")
+                print(f"{RED}  현재 설정 예산: {config.GRID_BUDGET} USDT{RESET}")
+                print()
+                print(f"  💡 해결 방법:")
+                if config.DEMO_MODE:
+                    print(f"     1. OKX 데모 계정에 충분한 USDT를 충전하세요")
+                    print(f"        (okx.com → 데모 트레이딩 → 자산 → 충전)")
+                    print(f"     2. 또는 설정에서 그리드 예산을 줄여주세요")
+                else:
+                    print(f"     1. OKX 계정에 충분한 USDT를 입금하세요")
+                    print(f"     2. 또는 설정에서 그리드 예산을 줄여주세요")
+            else:
+                print(f"{RED}  에러: {error_msg or resp}{RESET}")
+
+            print(f"{RED}{'═' * 56}{RESET}")
+            print(f"\n  프로그램을 종료합니다. 문제를 해결한 후 다시 실행해주세요.\n")
+            self.notifier.send(f"❌ 그리드봇 시작 실패: {error_msg}")
+            sys.exit(1)
 
         while True:
             try:
@@ -299,9 +384,9 @@ class GridAgent:
                     pass
 
             try:
-                time.sleep(LOOP_INTERVAL_SEC)
+                self._wait_with_progress(config.LOOP_INTERVAL_SEC)
             except KeyboardInterrupt:
-                self._log("사용자 중단 요청 (sleep 중)")
+                self._log("사용자 중단 요청 (대기 중)")
                 self.notifier.send("⛔ Grid Agent 수동 종료")
                 break
 
@@ -321,7 +406,7 @@ class GridAgent:
 
         print()
         print(f"{CYAN}{BOLD}{'═' * 60}{RESET}")
-        print(f"{CYAN}{BOLD}  TICK #{self.loop_count}  [{ts}]  {SYMBOL}{RESET}")
+        print(f"{CYAN}{BOLD}  TICK #{self.loop_count}  [{ts}]  {config.SYMBOL}{RESET}")
         print(f"{CYAN}{'═' * 60}{RESET}")
 
         # 1. 데이터 수집
@@ -373,19 +458,19 @@ class GridAgent:
         print(f"  └────────────────────────────────────────────┘")
 
         # 3. 손절 체크
-        print(f"\n{DIM}[3/9]{RESET} {BOLD}손절 조건 체크{RESET} ─ 진입가 대비 {MAX_LOSS_PERCENT}% 이상 손실?")
+        print(f"\n{DIM}[3/9]{RESET} {BOLD}손절 조건 체크{RESET} ─ 진입가 대비 {config.MAX_LOSS_PERCENT}% 이상 손실?")
         try:
             if self._check_stop_loss(price):
                 print(f"  {RED}{BOLD}✗ 손절 조건 도달! 긴급 청산 실행{RESET}")
                 self.controller.emergency_stop()
-                self.notifier.send(f"💀 손절 청산 | {SYMBOL} | 현재가={price:,.0f}")
+                self.notifier.send(f"💀 손절 청산 | {config.SYMBOL} | 현재가={price:,.0f}")
                 return
         except Exception as e:
             print(f"  {RED}✗ 체크 실패: {e}{RESET}")
 
         if self.entry_price:
             loss_pct = (self.entry_price - price) / self.entry_price * 100
-            print(f"  {GREEN}✓{RESET} 진입가={self.entry_price:,.0f} | 현재 손익={-loss_pct:+.2f}% | 한도={MAX_LOSS_PERCENT}%")
+            print(f"  {GREEN}✓{RESET} 진입가={self.entry_price:,.0f} | 현재 손익={-loss_pct:+.2f}% | 한도={config.MAX_LOSS_PERCENT}%")
         else:
             print(f"  {GREEN}✓{RESET} 정상 (진입가 미설정)")
 
@@ -421,7 +506,7 @@ class GridAgent:
             print(f"  {RED}✗ 실행 실패: {e}{RESET}")
 
         # 7. 일일 리포트
-        print(f"\n{DIM}[7/9]{RESET} {BOLD}일일 리포트 체크{RESET} ─ {DAILY_REPORT_HOUR}시 발송")
+        print(f"\n{DIM}[7/9]{RESET} {BOLD}일일 리포트 체크{RESET} ─ {config.DAILY_REPORT_HOUR}시 발송")
         try:
             self._check_daily_report(price)
             sent = "발송됨" if self._report_sent_date == datetime.now().strftime("%Y-%m-%d") else "미발송"
@@ -433,7 +518,7 @@ class GridAgent:
         print(f"\n{DIM}[8/9]{RESET} {BOLD}상태 변화 감지{RESET} ─ {self.prev_state} → {signal.state}")
         try:
             if signal.state != self.prev_state:
-                if signal.state in NOTIFY_ON_STATES:
+                if signal.state in config.NOTIFY_ON_STATES:
                     self.notifier.send(
                         f"{emoji} 상태 변화: {self.prev_state} → {signal.state}\n"
                         f"리스크 점수: {signal.risk_score}/100\n"
@@ -456,12 +541,17 @@ class GridAgent:
         for line in self.cost_guard.status_report().split("\n"):
             print(f"  {DIM}{line}{RESET}")
 
-        # 10. 요약
+        # 10. 요약 + 텔레그램 틱 리포트
         print(f"\n{DIM}[10/10]{RESET} {BOLD}틱 완료{RESET}")
-        print(f"  {emoji} {signal.state} | {score_color}{signal.risk_score:.1f}/100{RESET} | "
-              f"{trend_color}{trend}(ADX={trend_strength:.1f}){RESET} | "
-              f"{ac}{action}{RESET} | {price:,.0f} USDT")
-        print(f"\n{DIM}  다음 틱까지 {LOOP_INTERVAL_SEC}초 대기...{RESET}")
+        summary_line = (
+            f"{emoji} {signal.state} | {score_color}{signal.risk_score:.1f}/100{RESET} | "
+            f"{trend_color}{trend}(ADX={trend_strength:.1f}){RESET} | "
+            f"{ac}{action}{RESET} | {price:,.0f} USDT"
+        )
+        print(f"  {summary_line}")
+
+        # 매 틱 텔레그램 발송
+        self._send_tick_report(signal, price, action, trend, trend_strength)
         print(f"{CYAN}{'─' * 60}{RESET}")
 
     # ─── 의사결정 ──────────────────────────────────────────
@@ -483,7 +573,7 @@ class GridAgent:
                 return "REDUCE"
 
         # 점수가 애매한 구간 (CAUTION 경계) → 비용 가드 체크 후 LLM 호출
-        if LLM_TRIGGER_SCORE <= score <= SCORE_WARNING:
+        if config.LLM_TRIGGER_SCORE <= score <= config.SCORE_WARNING:
             # CostGuard: 예산/서킷/캐시/감소수익 체크
             should_call, reason, cached_action = self.cost_guard.pre_check(signal)
 
@@ -493,7 +583,7 @@ class GridAgent:
 
             # 실제 LLM 호출
             try:
-                if MULTI_AGENT_MODE and self.multi_agent.available:
+                if config.MULTI_AGENT_MODE and self.multi_agent.available:
                     result = self.multi_agent.judge_with_detail(signal, price)
                     self._log(
                         f"멀티 에이전트 합의: {result.final_action} "
@@ -537,11 +627,11 @@ class GridAgent:
                 )
 
         # 명확한 구간은 룰 베이스로 결정
-        if score <= SCORE_CAUTION:
+        if score <= config.SCORE_CAUTION:
             action = "MAINTAIN"
-        elif score <= SCORE_WARNING:
+        elif score <= config.SCORE_WARNING:
             action = "WIDEN"
-        elif score <= SCORE_EMERGENCY:
+        elif score <= config.SCORE_EMERGENCY:
             action = "PAUSE"
         else:
             return "STOP"
@@ -598,7 +688,7 @@ class GridAgent:
                 self.controller.reduce_exposure()
                 trend_strength = getattr(signal, "trend_strength", 0.0)
                 self.notifier.send(
-                    f"⚠️ 매수 주문 축소 | {SYMBOL}\n"
+                    f"⚠️ 매수 주문 축소 | {config.SYMBOL}\n"
                     f"추세: BEARISH (ADX={trend_strength:.1f})\n"
                     f"현재가: {price:,.0f}"
                 )
@@ -617,7 +707,7 @@ class GridAgent:
                     self.last_shift_time = datetime.now()
                     trend_strength = getattr(signal, "trend_strength", 0.0)
                     self.notifier.send(
-                        f"📈 그리드 상향 시프트 | {SYMBOL}\n"
+                        f"📈 그리드 상향 시프트 | {config.SYMBOL}\n"
                         f"추세: BULLISH (ADX={trend_strength:.1f})\n"
                         f"새 중심: {new_center:,.0f}\n"
                         f"현재가: {price:,.0f}"
@@ -637,7 +727,7 @@ class GridAgent:
                     self.last_shift_time = datetime.now()
                     trend_strength = getattr(signal, "trend_strength", 0.0)
                     self.notifier.send(
-                        f"📉 그리드 하향 시프트 | {SYMBOL}\n"
+                        f"📉 그리드 하향 시프트 | {config.SYMBOL}\n"
                         f"추세: BEARISH (ADX={trend_strength:.1f})\n"
                         f"새 중심: {new_center:,.0f}\n"
                         f"현재가: {price:,.0f}"
@@ -648,7 +738,7 @@ class GridAgent:
         elif action == "STOP":
             self.controller.emergency_stop()
             self.notifier.send(
-                f"🔴 긴급 청산 완료 | {SYMBOL}\n"
+                f"🔴 긴급 청산 완료 | {config.SYMBOL}\n"
                 f"리스크 점수: {signal.risk_score}/100\n"
                 f"사유: {signal.reason}"
             )
@@ -707,7 +797,7 @@ class GridAgent:
                 self.daily_sell_vol += sz
 
             msg = (
-                f"{emoji} {label} 체결 | {SYMBOL}\n"
+                f"{emoji} {label} 체결 | {config.SYMBOL}\n"
                 f"가격: {px:,.2f} USDT\n"
                 f"수량: {sz}\n"
                 f"수수료: {fee:.6f}\n"
@@ -729,7 +819,7 @@ class GridAgent:
                 return
 
             # 지정 시간이 안 됐으면 스킵
-            if now.hour < DAILY_REPORT_HOUR:
+            if now.hour < config.DAILY_REPORT_HOUR:
                 return
 
             # 날짜가 바뀌었으면 당일 카운터 리셋
@@ -767,7 +857,7 @@ class GridAgent:
             msg = (
                 f"📊 일일 리포트 | {today}\n"
                 f"{'─' * 28}\n"
-                f"심볼: {SYMBOL}\n"
+                f"심볼: {config.SYMBOL}\n"
                 f"현재가: {current_price:,.0f} USDT\n"
                 f"{'─' * 28}\n"
                 f"{pnl_section}\n"
@@ -788,15 +878,103 @@ class GridAgent:
         except Exception as e:
             self._log(f"일일 리포트 생성 실패: {e}", level="ERROR")
 
+    # ─── 틱 리포트 텔레그램 발송 ─────────────────────────────
+
+    def _send_tick_report(self, signal, price: float, action: str,
+                          trend: str, trend_strength: float):
+        """매 틱마다 텔레그램으로 요약 발송. EMERGENCY 시 반복 알림."""
+        state_emoji = {"NORMAL": "🟢", "CAUTION": "🟡", "WARNING": "🟠", "EMERGENCY": "🔴"}
+        emoji = state_emoji.get(signal.state, "⚪")
+        pnl_str = ""
+        try:
+            pnl = self.controller.get_grid_pnl()
+            if pnl:
+                total = pnl.get("total_pnl", 0)
+                pnl_emoji = "📈" if total >= 0 else "📉"
+                pnl_str = f"\n{pnl_emoji} 손익: {total:+,.2f} USDT"
+        except Exception:
+            pass
+
+        loss_str = ""
+        if self.entry_price and price:
+            loss_pct = (price - self.entry_price) / self.entry_price * 100
+            loss_str = f"\n진입가 대비: {loss_pct:+.2f}%"
+
+        msg = (
+            f"{emoji} TICK #{self.loop_count} | {config.SYMBOL}\n"
+            f"{'─' * 28}\n"
+            f"상태: {signal.state} | 점수: {signal.risk_score:.1f}/100\n"
+            f"추세: {trend} (ADX={trend_strength:.1f})\n"
+            f"현재가: {price:,.2f} USDT\n"
+            f"액션: {action}"
+            f"{pnl_str}"
+            f"{loss_str}\n"
+            f"{'─' * 28}\n"
+            f"ATR={signal.atr_current:.1f} | RSI={signal.rsi:.1f} | "
+            f"BB={signal.bb_width:.2f}% | Vol={signal.volume_ratio:.1f}x"
+        )
+
+        self.notifier.send(msg)
+
+        # EMERGENCY: 10초 간격으로 3회 반복 알림
+        if signal.state == "EMERGENCY":
+            emergency_msg = (
+                f"🚨🚨🚨 긴급 알림 🚨🚨🚨\n\n"
+                f"리스크 점수: {signal.risk_score:.1f}/100\n"
+                f"현재가: {price:,.2f} USDT\n"
+                f"사유: {signal.reason}\n"
+                f"액션: {action}\n\n"
+                f"즉시 확인이 필요합니다!"
+            )
+            for i in range(3):
+                time.sleep(10)
+                self.notifier.send(f"[{i+2}/4] {emergency_msg}")
+
+    # ─── 대기 프로그레스 바 ────────────────────────────────────
+
+    def _wait_with_progress(self, seconds: int):
+        """다음 틱까지 프로그레스 바로 대기 시간 시각화."""
+        BAR_WIDTH = 40
+        DIM = "\033[2m"
+        CYAN = "\033[96m"
+        GREEN = "\033[92m"
+        RESET = "\033[0m"
+        BOLD = "\033[1m"
+
+        for elapsed in range(seconds):
+            remaining = seconds - elapsed
+            progress = elapsed / seconds
+            filled = int(BAR_WIDTH * progress)
+            bar = "█" * filled + "░" * (BAR_WIDTH - filled)
+
+            mins, secs = divmod(remaining, 60)
+            time_str = f"{mins}:{secs:02d}" if mins else f"{secs}초"
+
+            print(
+                f"\r  {DIM}⏳{RESET} {CYAN}{bar}{RESET} "
+                f"{GREEN}{progress*100:5.1f}%{RESET} "
+                f"{DIM}(다음 틱까지 {time_str}){RESET}",
+                end="", flush=True
+            )
+            time.sleep(1)
+
+        # 완료
+        bar = "█" * BAR_WIDTH
+        print(
+            f"\r  {DIM}✓{RESET}  {GREEN}{bar}{RESET} "
+            f"{GREEN}{BOLD}100.0%{RESET} "
+            f"{DIM}(시작!){RESET}              "
+        )
+
     # ─── 손절 체크 ─────────────────────────────────────────
 
     def _check_stop_loss(self, current_price: float) -> bool:
-        """진입가 대비 MAX_LOSS_PERCENT 이상 손실 시 True."""
+        """진입가 대비 config.MAX_LOSS_PERCENT 이상 손실 시 True."""
         if self.entry_price is None:
             self.entry_price = current_price
             return False
         loss_pct = (self.entry_price - current_price) / self.entry_price * 100
-        return loss_pct >= MAX_LOSS_PERCENT
+        return loss_pct >= config.MAX_LOSS_PERCENT
 
     # ─── 로그 ──────────────────────────────────────────────
 
@@ -818,10 +996,8 @@ if __name__ == "__main__":
 
     if result == "start":
         clear()
-        # 메뉴에서 설정 변경 가능하므로 프로세스 재시작으로 config 새로 로드
-        src_dir = os.path.dirname(os.path.abspath(__file__))
-        os.execv(sys.executable, [
-            sys.executable, "-c",
-            f"import sys; sys.path.insert(0, r'{src_dir}'); "
-            f"from main_agent import GridAgent; GridAgent().run()"
-        ])
+        # 메뉴에서 설정 변경했을 수 있으므로 config 모듈 다시 로드
+        import importlib
+        import config
+        importlib.reload(config)
+        GridAgent().run()

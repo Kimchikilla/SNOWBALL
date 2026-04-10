@@ -49,12 +49,95 @@ class GridController:
         except (ValueError, TypeError):
             return default
 
+    # ─── 기존 봇 동기화 ────────────────────────────────────────
+
+    def sync_existing_bot(self) -> dict:
+        """
+        OKX에서 현재 심볼에 대해 실행 중인 그리드봇을 조회하고,
+        있으면 에이전트 상태를 동기화합니다.
+        Returns: 동기화 결과 dict (status, bot_id 등)
+        """
+        try:
+            resp = self._get(
+                "/api/v5/tradingBot/grid/orders-algo-pending",
+                params={"algoOrdType": "grid"}
+            )
+
+            if resp.get("code") != "0":
+                self._log(f"기존 봇 조회 실패: {resp}", level="ERROR")
+                return {"status": "query_failed", "resp": resp}
+
+            bots = resp.get("data", [])
+            if not isinstance(bots, list):
+                return {"status": "no_bots"}
+
+            # 현재 심볼과 일치하는 봇 찾기
+            for bot in bots:
+                if not isinstance(bot, dict):
+                    continue
+                if bot.get("instId") != SYMBOL:
+                    continue
+
+                # 동기화
+                self.bot_id = bot.get("algoId")
+                self.current_lower = self._safe_float(bot.get("minPx"))
+                self.current_upper = self._safe_float(bot.get("maxPx"))
+                grid_num = bot.get("gridNum", "?")
+                run_type = bot.get("runType", "1")
+                mode = "arithmetic" if run_type == "1" else "geometric"
+                state = bot.get("state", "unknown")
+                investment = self._safe_float(bot.get("investment"))
+                total_pnl = self._safe_float(bot.get("totalPnl"))
+                grid_profit = self._safe_float(bot.get("gridProfit"))
+                float_pnl = self._safe_float(bot.get("floatProfit"))
+
+                self._log(
+                    f"✅ 기존 그리드봇 감지 | bot_id={self.bot_id}\n"
+                    f"     심볼: {SYMBOL} | 상태: {state}\n"
+                    f"     범위: {self.current_lower:,.2f} ~ {self.current_upper:,.2f}\n"
+                    f"     그리드: {grid_num}개 ({mode})\n"
+                    f"     투자금: {investment:,.2f} USDT\n"
+                    f"     손익: 그리드={grid_profit:+,.2f} 평가={float_pnl:+,.2f} 합계={total_pnl:+,.2f}"
+                )
+
+                # 일시정지 상태인지 체크
+                if state == "stopping" or state == "stopped":
+                    self.paused = True
+                else:
+                    self.paused = False
+
+                return {
+                    "code": "0",
+                    "status": "synced",
+                    "bot_id": self.bot_id,
+                    "lower": self.current_lower,
+                    "upper": self.current_upper,
+                    "grid_num": grid_num,
+                    "mode": mode,
+                    "state": state,
+                    "investment": investment,
+                    "total_pnl": total_pnl,
+                }
+
+            return {"status": "no_bots"}
+
+        except Exception as e:
+            self._log(f"기존 봇 동기화 실패: {e}", level="ERROR")
+            return {"status": "error", "msg": str(e)}
+
     # ─── 공개 액션 메서드 ────────────────────────────────────
 
     def ensure_grid_running(self, lower=None, upper=None, count=None) -> dict:
-        """그리드봇이 없으면 시작, 있으면 그대로."""
+        """기존 봇 동기화 시도 → 없으면 새로 시작."""
         if self.bot_id:
-            return {"status": "already_running", "bot_id": self.bot_id}
+            return {"code": "0", "status": "already_running", "bot_id": self.bot_id}
+
+        # 먼저 OKX에서 기존 봇 확인
+        sync = self.sync_existing_bot()
+        if sync.get("status") == "synced":
+            return sync
+
+        # 없으면 새로 시작
         return self.start_grid(lower, upper, count)
 
     def start_grid(self, lower=None, upper=None, count=None) -> dict:
