@@ -66,8 +66,8 @@ STYLE = Style([
 
 BANNER = """
 ╔══════════════════════════════════════════════════╗
-║           Snowball Agent                         ║
-║       OKX Adaptive Grid Trading Agent            ║
+║            ❄️  Snowball Agent  ❄️                ║
+║         OKX Adaptive Grid Trading Agent          ║
 ╚══════════════════════════════════════════════════╝
 """
 
@@ -876,15 +876,17 @@ def setup_telegram(env: dict):
 
     # 알림 받을 상태 선택 (중복 선택)
     try:
+        print("  ※ 여러 개 선택 가능합니다.")
+        print("     Space = 체크/해제, Enter = 선택 완료\n")
         notify_states = questionary.checkbox(
-            "알림 받을 상태 (Space로 선택, Enter로 확인)",
+            "알림 받을 상태",
             choices=[
-                Choice("CAUTION (주의)", value="CAUTION", checked=True),
-                Choice("WARNING (경고)", value="WARNING", checked=True),
-                Choice("EMERGENCY (긴급)", value="EMERGENCY", checked=True),
+                Choice("🟡 CAUTION  (주의)  — 그리드 간격 확대 시", value="CAUTION", checked=True),
+                Choice("🟠 WARNING  (경고)  — 신규 주문 중단 시", value="WARNING", checked=True),
+                Choice("🔴 EMERGENCY(긴급)  — 전체 청산 시", value="EMERGENCY", checked=True),
             ],
             style=STYLE,
-            instruction="(↑↓ 이동, Space 선택/해제, Enter 확인)",
+            instruction="[Space] 체크  [Enter] 완료",
         ).ask()
     except (KeyboardInterrupt, EOFError):
         return
