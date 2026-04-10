@@ -206,26 +206,41 @@ class GridController:
 
     def pause_new_orders(self) -> dict:
         """
-        WARNING 상태: 신규 주문을 중단하고 기존 체결 포지션만 유지합니다.
-        OKX는 그리드봇을 일시 정지하는 직접 API가 없으므로,
-        pending 주문을 모두 취소하는 방식으로 구현합니다.
+        그리드봇을 실제로 중지합니다 (보유 코인 유지, 매도 안 함).
+        OKX 그리드봇은 일시정지 API가 없으므로 봇을 중지하고
+        resume 시 동일 설정으로 재시작합니다.
         """
         if self.paused:
             return {"status": "already_paused"}
 
-        resp = self._cancel_pending_orders()
+        # 현재 설정 저장 (재개용)
+        self._paused_lower = self.current_lower
+        self._paused_upper = self.current_upper
+        self._paused_grid_num = self.current_grid_num
+        self._paused_mode = self.current_mode
+
+        # 봇 중지 (stopType=1: 보유분 유지)
+        resp = self.stop_grid(sell_remaining=False)
         self.paused = True
-        self._log("신규 주문 중단 (WARNING 상태) | 기존 포지션 유지")
+        self._log("그리드봇 중지 (PAUSE) | 보유 포지션 유지, 신규 주문 없음")
         return resp
 
     def resume_grid(self) -> dict:
-        """CAUTION 이하로 복귀 시 그리드 재개."""
+        """PAUSE 상태에서 동일 설정으로 그리드봇 재시작."""
         if not self.paused:
             return {"status": "not_paused"}
-        self.paused = False
-        # 그리드봇 자체는 살아있으므로 재개만 알림
-        self._log("그리드 재개 (CAUTION 이하 복귀)")
-        return {"status": "resumed"}
+
+        lower = getattr(self, "_paused_lower", None) or GRID_LOWER
+        upper = getattr(self, "_paused_upper", None) or GRID_UPPER
+        count = getattr(self, "_paused_grid_num", None) or GRID_COUNT
+
+        self._log(f"그리드봇 재시작 (RESUME) | 범위={lower}~{upper} | {count}칸")
+        resp = self.start_grid(lower=lower, upper=upper, count=count)
+        if resp.get("code") == "0":
+            self.paused = False
+        else:
+            self._log("그리드봇 재시작 실패 — PAUSE 상태 유지", level="ERROR")
+        return resp
 
     def emergency_stop(self) -> dict:
         """
@@ -568,34 +583,12 @@ class GridController:
 
     def reduce_exposure(self) -> dict:
         """
-        하락장 방어: 미체결 매수(buy) 주문만 취소하여 추가 매수 노출을 줄입니다.
-        매도 주문은 유지합니다.
+        하락장 방어: 그리드봇을 중지하여 추가 매수를 방지합니다.
+        OKX 그리드봇은 매수만 선택 취소가 불가능하므로 PAUSE와 동일하게
+        봇을 중지(보유분 유지)합니다.
         """
         try:
-            orders_resp = self._get(
-                "/api/v5/trade/orders-pending",
-                params={"instId": SYMBOL, "ordType": "limit"}
-            )
-            orders = orders_resp.get("data", [])
-            if not isinstance(orders, list):
-                self._log(f"미체결 주문 조회 응답 구조 이상: {type(orders)}", level="ERROR")
-                return {"status": "error", "msg": "unexpected response structure"}
-
-            buy_orders = [
-                {"instId": SYMBOL, "ordId": o["ordId"]}
-                for o in orders
-                if isinstance(o, dict) and o.get("side") == "buy" and "ordId" in o
-            ]
-            if not buy_orders:
-                self._log("reduce_exposure: 취소할 매수 주문 없음")
-                return {"status": "no_buy_orders", "cancelled_count": 0}
-
-            for i in range(0, len(buy_orders), 20):
-                batch = buy_orders[i:i + 20]
-                self._post("/api/v5/trade/cancel-batch-orders", batch)
-
-            self._log(f"하락장 방어: 매수 주문 {len(buy_orders)}개 취소 완료")
-            return {"status": "cancelled", "cancelled_count": len(buy_orders)}
+            return self.pause_new_orders()
         except Exception as e:
             self._log(f"reduce_exposure 실패: {e}", level="ERROR")
             return {"status": "error", "msg": str(e)}
