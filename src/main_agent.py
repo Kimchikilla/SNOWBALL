@@ -1395,65 +1395,60 @@ class GridAgent:
             # OKX 실제 포지션 조회
             pos = self.controller.get_grid_positions()
             coin = config.SYMBOL.split("-")[0]  # ETH-USDT → ETH
-            position_lines = ""
-            if pos:
-                cur_coin = pos.get("cur_base_sz", 0)
-                cur_usdt = pos.get("cur_quote_sz", 0)
-                investment = pos.get("investment", 0)
-                filled = pos.get("filled_count", "0")
-                total_orders = pos.get("total_count", "0")
-                coin_value = cur_coin * price if cur_coin else 0
-                total_value = coin_value + cur_usdt
-                pnl_pct = ((total_value - investment) / investment * 100) if investment > 0 else 0
-                pnl_emoji = "🟢" if pnl_pct >= 0 else "🔴"
-
-                position_lines = (
-                    f"\n💼 그리드봇 포지션\n"
-                    f"  통화    보유량       평가액\n"
-                    f"  {coin:<6}{cur_coin:<13.6f}{coin_value:>10,.0f} USDT\n"
-                    f"  {'USDT':<6}{cur_usdt:<13,.2f}{cur_usdt:>10,.0f} USDT\n"
-                    f"  ─────────────────────────\n"
-                    f"  합계               {total_value:>10,.0f} USDT\n"
-                    f"  투자금             {investment:>10,.0f} USDT\n"
-                    f"  {pnl_emoji} 수익률            {pnl_pct:>+9.2f}%\n"
-                    f"  체결 {filled}/{total_orders}건"
-                )
 
             # OKX 계좌 전체 잔고
             balances = self.controller.get_account_balance()
-            balance_lines = ""
+
+            # 포지션 테이블 (계좌 잔고 기준)
+            now_ts = datetime.now().strftime("%-m/%d %p %-I:%M").replace("AM", "오전").replace("PM", "오후")
+            portfolio_lines = ""
             if balances:
                 total_eq = 0.0
                 rows = []
                 for ccy, bal in sorted(balances.items()):
                     total_bal = bal.get("total", 0)
                     eq_usd = bal.get("eq_usd", 0)
-                    if total_bal <= 0:
+                    if total_bal <= 0 and eq_usd <= 0:
                         continue
                     total_eq += eq_usd
                     if ccy == coin:
                         rows.append(
-                            f"  {ccy:<6}{total_bal:<13.4f}{eq_usd:>10,.0f} USDT"
+                            f"  {ccy:<8}{total_bal:>10.2f}개  {price:>10,.0f}  ~{eq_usd:>10,.0f} USDT"
                         )
                     elif ccy == "USDT":
                         rows.append(
-                            f"  {ccy:<6}{total_bal:<13,.2f}{total_bal:>10,.0f} USDT"
+                            f"  {ccy:<8}{total_bal:>10,.0f}     {'-':>10}  {total_bal:>11,.0f} USDT"
                         )
                     else:
                         if eq_usd >= 1:
                             rows.append(
-                                f"  {ccy:<6}{total_bal:<13.4f}{eq_usd:>10,.0f} USDT"
+                                f"  {ccy:<8}{total_bal:>10.4f}     {'-':>10}  ~{eq_usd:>10,.0f} USDT"
                             )
 
-                if rows:
-                    balance_lines = (
-                        f"\n{'─' * 28}\n"
-                        f"🏦 계좌 잔고\n"
-                        f"  통화    보유량       평가액\n"
-                        + "\n".join(rows)
-                        + f"\n  ─────────────────────────\n"
-                        f"  총 평가           {total_eq:>10,.0f} USDT"
-                    )
+                # 원금 계산 (투자금 + 봇 외 USDT)
+                investment = pos.get("investment", 0) if pos else 0
+                pnl_val = total_eq - investment if investment > 0 else 0
+                pnl_pct = (pnl_val / investment * 100) if investment > 0 else 0
+                pnl_emoji = "✅" if pnl_val >= 0 else "🔻"
+
+                portfolio_lines = (
+                    f"\n{'─' * 28}\n"
+                    f"현재 포지션 ({now_ts})\n"
+                    f"  {'통화':<8}{'보유량':>10}  {'현재가':>10}  {'평가액':>14}\n"
+                    + "\n".join(rows)
+                    + f"\n  {'총 평가':<8}{'':>10}  {'':>10}  ~{total_eq:>10,.0f} USDT\n"
+                    f"\n"
+                    f"  원금:   ~{investment:,.0f} USDT\n"
+                    f"  현재:   ~{total_eq:,.0f} USDT\n"
+                    f"  손익:   {pnl_val:+,.0f} USDT ({pnl_pct:+.2f}%) {pnl_emoji}"
+                )
+
+            # 그리드봇 체결 정보
+            fill_info = ""
+            if pos:
+                filled = pos.get("filled_count", "0")
+                total_orders = pos.get("total_count", "0")
+                fill_info = f"\n  체결: {filled}/{total_orders}건"
 
             grid_section = (
                 f"\n{'─' * 28}\n"
@@ -1461,8 +1456,8 @@ class GridAgent:
                 f"📐 {gl:,.2f} [{bar}] {gu:,.2f}\n"
                 f"   위치: {position_pct:.0f}% ({pos_label})\n"
                 f"   {grid_info}{spacing_str}"
-                f"{position_lines}"
-                f"{balance_lines}\n"
+                f"{fill_info}"
+                f"{portfolio_lines}\n"
                 f"🔄 재시작: 당일 {self.grid_restart_count}회 | 수수료: {self.daily_fees:,.4f}"
             )
 
