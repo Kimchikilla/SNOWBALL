@@ -64,7 +64,7 @@ class GridController:
             )
 
             if resp.get("code") != "0":
-                self._log(f"기존 봇 조회 실패: {resp}", level="ERROR")
+                self._log(f"기존 봇 조회 실패: code={resp.get('code')} msg={resp.get('msg', '')}", level="ERROR")
                 return {"status": "query_failed", "resp": resp}
 
             bots = resp.get("data", [])
@@ -171,7 +171,10 @@ class GridController:
             except Exception as e:
                 self._log(f"그리드봇 시작 응답 파싱 실패: {e}", level="ERROR")
         else:
-            self._log(f"그리드봇 시작 실패: {resp}", level="ERROR")
+            sMsg = ""
+            if isinstance(resp.get("data"), list) and resp["data"]:
+                sMsg = resp["data"][0].get("sMsg", "")
+            self._log(f"그리드봇 시작 실패: code={resp.get('code')} sMsg={sMsg}", level="ERROR")
 
         return resp
 
@@ -244,7 +247,7 @@ class GridController:
             self._log(f"그리드봇 중지 | sell_remaining={sell_remaining}")
             self.bot_id = None
         else:
-            self._log(f"그리드봇 중지 실패: {resp}", level="ERROR")
+            self._log(f"그리드봇 중지 실패: code={resp.get('code')} msg={resp.get('msg', '')}", level="ERROR")
 
         return resp
 
@@ -417,7 +420,8 @@ class GridController:
             raise
 
     def _headers(self, method: str, path: str, body: str = "") -> dict:
-        ts  = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        now = datetime.now(timezone.utc)
+        ts  = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
         sig = self._sign(ts, method, path, body)
         return {
             "OK-ACCESS-KEY":        OKX_API_KEY,

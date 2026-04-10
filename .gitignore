@@ -1,3 +1,32 @@
+# 환경 설정 (API 키, 시크릿)
+.env
 src/.env
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 로그
+*.log
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/settings.local.json
+src/.claude/
+
+# 실수로 생긴 파일
+src/=1.0.0

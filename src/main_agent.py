@@ -387,7 +387,7 @@ class GridAgent:
             except Exception as e:
                 self._log(f"루프 오류: {e}", level="ERROR")
                 try:
-                    self.notifier.send(f"❌ Agent 오류: {e}")
+                    self.notifier.send(f"❌ Agent 오류 발생 (상세 내용은 터미널 확인)")
                 except Exception:
                     pass
 
