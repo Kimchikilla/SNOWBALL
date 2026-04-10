@@ -16,73 +16,61 @@ An adaptive grid trading bot for the OKX exchange. It analyzes market volatility
 
 ## How It Works
 
-Repeats the following cycle every 2 minutes:
+**Event-driven architecture** — monitors every 5 minutes, but agents are only called when events are detected:
 
-1. **Market Data Collection** - Fetches candle data from OKX API
-2. **Risk Score Calculation** (0~100) - Combines ATR, RSI, Bollinger Bands, and Volume
-3. **State Decision & Action Execution**
-4. **Telegram Tick Report** (sends status/PnL/indicator summary every tick)
-5. **Progress Bar Wait** (visual countdown to next tick)
+```
+Every 5 min (monitoring)
+  → Collect price/indicators → Telegram report
+  → Event detected? → NO → MAINTAIN (bot untouched)
+                     → YES → Call agents → Decision
+```
 
-### State Machine
+### Agent Trigger Events
 
-| Score | State | Action |
-|-------|-------|--------|
-| 0~30 | NORMAL | Maintain grid |
-| 31~60 | CAUTION | Widen grid spacing |
-| 61~80 | WARNING | Pause new orders |
-| 81~100 | EMERGENCY | Liquidate all |
+The bot monitors continuously but only calls LLM agents when these events occur:
 
-When the score falls in an ambiguous range (55~80), the **multi-agent consensus system** makes the decision.
+| Event | Condition | Description |
+|-------|-----------|-------------|
+| Grid boundary near | Price at 80%+ of upper/lower | Grid shift needed? |
+| Volatility spike | ATR ≥ 3× average | Grid widening needed? |
+| High risk | Risk score 60+ | Overall market assessment |
+| Volume explosion | Volume ≥ 5× average | Rapid change response |
+| Grid breakout | Price outside range 6hr+ | Reposition decision |
+
+When no events are detected, LLM cost is **$0**.
+
+### Available Actions
+
+| Action | Description | Cost |
+|--------|-------------|------|
+| **MAINTAIN** | Keep current grid (default) | $0 |
+| **WIDEN** | Widen grid range, restart bot | Trading fees |
+| **SHIFT_UP** | Move grid upward | Trading fees |
+| **SHIFT_DOWN** | Move grid downward | Trading fees |
+| **STOP** | Emergency liquidation (extreme only) | Trading fees |
+
+> ~~PAUSE/REDUCE~~ — Removed. OKX grid bots have no pause API, so "pausing" required
+> stopping and restarting the bot, incurring fees each time. The bot stays running;
+> use STOP only for genuine emergencies.
 
 ### Multi-Agent Consensus System
 
-Instead of a single LLM, 4 specialist agents analyze independently, then a coordinator derives consensus:
-
-```
-┌─────────────────────────────────────────┐
-│        Market Data (shared context)      │
-└─────┬────────┬────────┬────────┬────────┘
-      │        │        │        │
- ┌────▼───┐┌───▼────┐┌──▼────┐┌──▼──────┐
- │Technical││Sentiment││ Risk  ││  Macro  │
- │ Analyst ││ Analyst ││Manager││Strategist│
- └────┬───┘└───┬────┘└──┬────┘└──┬──────┘
-      │        │     (2x)│       │
-      └────────┴────────┴───────┘
-                    │
-              ┌─────▼─────┐
-              │ Coordinator│
-              └─────┬─────┘
-                    │
-              Final Action
-```
+When events trigger, 4 specialist agents analyze independently, then a coordinator derives consensus:
 
 | Agent | Role | Focus |
 |-------|------|-------|
 | Technical Analyst | Chart analysis | EMA cross, ATR, BB, RSI patterns |
 | Sentiment Analyst | Market psychology | Volume patterns, panic/FOMO detection |
-| Risk Manager | Capital preservation | Worst-case scenarios **(2x vote weight)** |
+| Risk Manager | Capital preservation | Fee efficiency, worst-case scenarios **(2x vote weight)** |
 | Macro Strategist | Big picture | Trend direction, market cycle, ADX |
-| Coordinator | Consensus | Majority vote + defense bias + confidence weighting |
+| Coordinator | Consensus | Majority vote + confidence weighting |
 
 **Consensus rules:**
 - 3/4+ agreement → adopted
-- Risk Manager STOP/PAUSE → 2x vote weight
-- Split opinions → most defensive action wins
+- Risk Manager STOP → 2x vote weight
+- Split opinions → MAINTAIN (don't touch the bot by default)
 - Average confidence ≤ 3 → MAINTAIN (low conviction)
 - Set `MULTI_AGENT_MODE=false` to fall back to single LLM mode
-
-### Trend Detection & Auto-Response
-
-EMA 9/21 crossover + ADX for trend detection and automatic response:
-
-| Condition | Action | Description |
-|-----------|--------|-------------|
-| Bearish + ADX≥50 | PAUSE | Strong downtrend, pause new orders |
-| Bearish + ADX≥30 | REDUCE | Cancel buy orders only (downside defense) |
-| Bullish + near grid top | SHIFT_UP | Shift grid upward |
-| Bearish + near grid bottom | SHIFT_DOWN | Shift grid downward |
 
 ### Risk Score Breakdown
 

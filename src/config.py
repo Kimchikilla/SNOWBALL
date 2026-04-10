@@ -85,7 +85,7 @@ VOLUME_SPIKE_MULTIPLIER = _env_float("VOLUME_SPIKE_MULTIPLIER", 5.0)
 MAX_LOSS_PERCENT = _env_float("MAX_LOSS_PERCENT", 15.0)
 
 # ─── 모니터링 주기 ─────────────────────────────────────
-LOOP_INTERVAL_SEC    = _env_int("LOOP_INTERVAL_SEC", 120)
+LOOP_INTERVAL_SEC    = _env_int("LOOP_INTERVAL_SEC", 300)
 CANDLE_INTERVAL      = _env("CANDLE_INTERVAL", "1m")
 CANDLE_LOOKBACK      = _env_int("CANDLE_LOOKBACK", 100)
 

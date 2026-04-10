@@ -91,13 +91,13 @@ class LLMJudge:
     def judge(self, signal: MarketSignal, current_price: float,
               fee_context: str = "") -> str:
         """
-        Returns: "MAINTAIN" | "WIDEN" | "PAUSE" | "STOP"
+        Returns: "MAINTAIN" | "WIDEN" | "SHIFT_UP" | "SHIFT_DOWN" | "STOP"
         """
         if not self.available:
             return "MAINTAIN"
 
         prompt = f"""
-당신은 BTC/ETH 그리드 거래 전문가입니다.
+당신은 암호화폐 그리드 거래 전문가입니다.
 현재 시장 상황을 분석하고 최적의 행동을 결정해주세요.
 
 === 현재 상태 ===
@@ -112,21 +112,23 @@ RSI: {signal.rsi:.1f}
 거래량 배율: {signal.volume_ratio:.1f}x
 {fee_context}
 === 판단 요청 ===
-다음 4가지 중 하나로만 답하세요 (이유 한 줄 포함):
+다음 중 하나로만 답하세요 (이유 한 줄 포함):
 - MAINTAIN: 현재 그리드를 그대로 유지
 - WIDEN: 그리드 간격을 넓혀서 재시작 (수수료 발생!)
-- PAUSE: 신규 주문 중단, 기존 유지
-- STOP: 전체 청산
+- SHIFT_UP: 그리드를 위로 이동 (수수료 발생!)
+- SHIFT_DOWN: 그리드를 아래로 이동 (수수료 발생!)
+- STOP: 전체 청산 (극단적 상황에서만)
 
+WIDEN/SHIFT는 그리드 재시작이며 수수료가 발생합니다.
 수수료가 예상 수익보다 크면 MAINTAIN을 우선하세요.
 
 형식: ACTION|이유
-예시: WIDEN|ATR이 평균의 2.8배로 단기 급등 가능성 높음
+예시: MAINTAIN|변동성 낮고 횡보 중, 수수료 대비 조정 불필요
 """
         try:
             raw = self._call(prompt)
             action = raw.split("|")[0].strip().upper()
-            if action not in ("MAINTAIN", "WIDEN", "PAUSE", "STOP"):
+            if action not in ("MAINTAIN", "WIDEN", "SHIFT_UP", "SHIFT_DOWN", "STOP"):
                 return "MAINTAIN"
             return action
         except Exception as e:
@@ -536,8 +538,8 @@ class GridAgent:
             action = breakout_action
             # 바로 실행으로 점프
             action_colors = {
-                "MAINTAIN": GREEN, "WIDEN": YELLOW, "PAUSE": YELLOW,
-                "STOP": RED, "REDUCE": YELLOW, "SHIFT_UP": CYAN, "SHIFT_DOWN": CYAN
+                "MAINTAIN": GREEN, "WIDEN": YELLOW,
+                "STOP": RED, "SHIFT_UP": CYAN, "SHIFT_DOWN": CYAN
             }
             ac = action_colors.get(action, RESET)
             print(f"\n{DIM}[6/10]{RESET} {BOLD}액션 실행{RESET} ─ {ac}{action}{RESET}")
@@ -634,37 +636,73 @@ class GridAgent:
 
     # ─── 의사결정 ──────────────────────────────────────────
 
+    def _detect_events(self, signal: MarketSignal, price: float) -> list[str]:
+        """이벤트 감지: 에이전트 호출이 필요한 상황인지 판별."""
+        events = []
+        gl = self.controller.current_lower
+        gu = self.controller.current_upper
+
+        # 1. 가격이 그리드 상/하단 80% 도달
+        if gl is not None and gu is not None and gu > gl:
+            grid_range = gu - gl
+            position_pct = (price - gl) / grid_range * 100
+            if position_pct >= 80:
+                events.append(f"가격이 그리드 상단 {position_pct:.0f}% 도달")
+            elif position_pct <= 20:
+                events.append(f"가격이 그리드 하단 {position_pct:.0f}% 도달")
+
+        # 2. ATR 급등 (평균의 3배 이상)
+        if signal.atr_avg > 0 and signal.atr_current >= signal.atr_avg * 3:
+            events.append(f"ATR 급등 ({signal.atr_current:.1f} / 평균 {signal.atr_avg:.1f} = {signal.atr_current/signal.atr_avg:.1f}배)")
+
+        # 3. 리스크 스코어 60 이상
+        if signal.risk_score >= 60:
+            events.append(f"리스크 스코어 {signal.risk_score:.1f}/100")
+
+        # 4. 거래량 급등 (5배 이상)
+        if signal.volume_ratio >= 5.0:
+            events.append(f"거래량 폭발 ({signal.volume_ratio:.1f}x)")
+
+        return events
+
     def _decide_action(self, signal: MarketSignal, price: float) -> str:
-        """상태 머신으로 기본 액션 결정, 트렌드 감지 및 LLM 위임 포함."""
+        """이벤트 기반 의사결정. 이벤트가 있을 때만 에이전트 호출."""
 
         score = signal.risk_score
         trend = getattr(signal, "trend", "SIDEWAYS")
         trend_strength = getattr(signal, "trend_strength", 0.0)
 
-        # 에이전트 호출 조건:
-        # 1. 리스크 스코어 55~80 (기존 애매한 구간)
-        # 2. 강한 추세 (ADX >= 30) — 스코어 상관없이 에이전트 판단 필요
-        need_agent = (
-            config.LLM_TRIGGER_SCORE <= score <= config.SCORE_WARNING
-            or trend_strength >= 30
-        )
+        # 이벤트 감지
+        events = self._detect_events(signal, price)
 
-        if need_agent:
-            # CostGuard: 예산/서킷/캐시/감소수익 체크
-            should_call, reason, cached_action = self.cost_guard.pre_check(signal)
+        # 이벤트 없으면 에이전트 호출 안 함 → MAINTAIN
+        if not events:
+            return "MAINTAIN"
 
-            if not should_call:
-                self._log(f"💰 CostGuard 스킵: {reason} → {cached_action}")
-                return cached_action
+        # 이벤트 발생 → 에이전트 호출
+        event_str = "\n".join(f"  - {e}" for e in events)
+        self._log(f"⚡ 이벤트 감지 ({len(events)}건):\n{event_str}")
 
-            # 수수료 컨텍스트 생성
-            fee_ctx = self._build_fee_context(price)
+        if score >= 90:
+            return "STOP"  # 극단적 스코어는 바로 STOP
 
-            # 실제 LLM 호출
+        # CostGuard 체크
+        should_call, reason, cached_action = self.cost_guard.pre_check(signal)
+        if not should_call:
+            self._log(f"💰 CostGuard 스킵: {reason} → {cached_action}")
+            return cached_action
+
+        # 에이전트에게 이벤트 컨텍스트 포함해서 판단 요청
+        fee_ctx = self._build_fee_context(price)
+        event_ctx = f"\n=== 이벤트 (에이전트 호출 사유) ===\n{event_str}\n"
+
+        # 실제 LLM 호출
+        combined_ctx = fee_ctx + event_ctx
+        if True:
             try:
                 if config.MULTI_AGENT_MODE and self.multi_agent.available:
                     result = self.multi_agent.judge_with_detail(
-                        signal, price, fee_context=fee_ctx
+                        signal, price, fee_context=combined_ctx
                     )
                     self._log(
                         f"멀티 에이전트 합의: {result.final_action} "
@@ -688,7 +726,7 @@ class GridAgent:
                     return result.final_action
                 else:
                     llm_action = self.llm_judge.judge(
-                        signal, price, fee_context=fee_ctx
+                        signal, price, fee_context=combined_ctx
                     )
                     self._log(f"LLM 단독 판단: {llm_action} (score={score})")
                     self.cost_guard.post_success(signal, llm_action, num_calls=1)
@@ -739,7 +777,7 @@ class GridAgent:
         elif score <= config.SCORE_WARNING:
             action = "WIDEN"
         elif score <= config.SCORE_EMERGENCY:
-            action = "PAUSE"
+            action = "MAINTAIN"  # 높은 스코어도 봇은 유지, 알림만
         else:
             return "STOP"
 
@@ -774,11 +812,7 @@ class GridAgent:
         """액션을 실제 API 호출로 변환."""
 
         if action == "MAINTAIN":
-            # 일시정지 상태였으면 재개
-            if self.controller.paused:
-                self.controller.resume_grid()
-            else:
-                self.controller.ensure_grid_running()
+            self.controller.ensure_grid_running()
 
         elif action == "WIDEN":
             self._record_grid_restart()
@@ -803,30 +837,6 @@ class GridAgent:
                 f"당일 누적 수수료: {self.daily_fees:,.4f} USDT\n"
                 f"당일 재시작: {self.grid_restart_count}회"
             )
-
-        elif action == "PAUSE":
-            if not self.controller.paused:
-                self.controller.pause_new_orders()
-                self.notifier.send(
-                    f"⏸️ 신규 주문 중단 (PAUSE) | {config.SYMBOL}\n"
-                    f"리스크 점수: {signal.risk_score:.1f}/100\n"
-                    f"현재가: {price:,.0f} USDT\n"
-                    f"사유: {signal.reason}"
-                )
-
-        elif action == "REDUCE":
-            try:
-                self.controller.reduce_exposure()
-                trend_strength = getattr(signal, "trend_strength", 0.0)
-                self.notifier.send(
-                    f"⚠️ 매수 주문 축소 (REDUCE) | {config.SYMBOL}\n"
-                    f"{'─' * 28}\n"
-                    f"추세: BEARISH (ADX={trend_strength:.1f})\n"
-                    f"현재가: {price:,.0f} USDT\n"
-                    f"리스크 점수: {signal.risk_score:.1f}/100"
-                )
-            except Exception as e:
-                self._log(f"REDUCE 실행 실패: {e}", level="ERROR")
 
         elif action == "SHIFT_UP":
             self._record_grid_restart()
@@ -1145,7 +1155,7 @@ class GridAgent:
     def _check_grid_breakout(self, signal, price: float) -> Optional[str]:
         """
         가격이 그리드 범위를 이탈했는지 감지.
-        - 이탈 직후: 알림 + 대기 (급락이면 PAUSE)
+        - 이탈 직후: 알림 + 대기
         - 6시간 이상 이탈: 에이전트에게 재배치 판단 요청
         - 복귀 시: 타이머 리셋
         Returns: 오버라이드할 액션 or None (정상 흐름)
@@ -1210,11 +1220,6 @@ class GridAgent:
                 f"⏳ 6시간 대기 후 재배치 여부 판단\n"
                 f"가격이 범위로 돌아오면 자동 매매 재개"
             )
-
-        # 급락 이탈이면 PAUSE (추가 매수 방지)
-        if direction == "BELOW" and not self.controller.paused:
-            self._log("하단 이탈 → PAUSE (추가 매수 방지)")
-            return "PAUSE"
 
         # ── 6시간 이상 이탈 → 에이전트에게 재배치 판단 요청 ──
         if elapsed >= self.BREAKOUT_WAIT_SEC:
@@ -1353,8 +1358,6 @@ class GridAgent:
         gl = self.controller.current_lower
         gu = self.controller.current_upper
         bot_id = self.controller.bot_id
-        paused = self.controller.paused
-
         if gl is not None and gu is not None and gu > gl:
             grid_range = gu - gl
             position_pct = (price - gl) / grid_range * 100
@@ -1377,12 +1380,7 @@ class GridAgent:
                 pos_label = "범위 내"
 
             # 봇 상태
-            if not bot_id:
-                bot_status = "❌ 봇 없음"
-            elif paused:
-                bot_status = "⏸️ 일시정지"
-            else:
-                bot_status = "✅ 가동 중"
+            bot_status = "✅ 가동 중" if bot_id else "❌ 봇 없음"
 
             # 포지션 요약
             avg_buy_str = ""
