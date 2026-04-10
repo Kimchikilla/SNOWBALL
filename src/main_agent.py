@@ -1385,11 +1385,19 @@ class GridAgent:
                 avg_buy = self.holding_cost / self.holding_qty
                 avg_buy_str = f" (평균 {avg_buy:,.2f})"
 
+            # 그리드 개수 & 간격
+            gn = self.controller.current_grid_num
+            gm = self.controller.current_mode or "?"
+            spacing = grid_range / gn if gn and gn > 0 else 0
+            grid_info = f"{gn}칸 ({gm})" if gn else "?"
+            spacing_str = f" | 간격: {spacing:,.2f}" if spacing > 0 else ""
+
             grid_section = (
                 f"\n{'─' * 28}\n"
                 f"🤖 그리드봇: {bot_status}\n"
                 f"📐 {gl:,.2f} [{bar}] {gu:,.2f}\n"
                 f"   위치: {position_pct:.0f}% ({pos_label})\n"
+                f"   {grid_info}{spacing_str}\n"
                 f"📦 보유: {self.holding_qty:.6f}{avg_buy_str}\n"
                 f"🔄 재시작: 당일 {self.grid_restart_count}회 | 수수료: {self.daily_fees:,.4f}"
             )

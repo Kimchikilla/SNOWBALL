@@ -35,6 +35,8 @@ class GridController:
         self.paused: bool = False
         self.current_lower: Optional[float] = None   # 현재 그리드 하한
         self.current_upper: Optional[float] = None   # 현재 그리드 상한
+        self.current_grid_num: Optional[int] = None  # 현재 그리드 개수
+        self.current_mode: Optional[str] = None      # arithmetic / geometric
         self.client = httpx.Client(base_url=OKX_BASE_URL, timeout=10)
 
     # ─── 유틸리티 ─────────────────────────────────────────────
@@ -85,6 +87,11 @@ class GridController:
                 grid_num = bot.get("gridNum", "?")
                 run_type = bot.get("runType", "1")
                 mode = "arithmetic" if run_type == "1" else "geometric"
+                try:
+                    self.current_grid_num = int(grid_num)
+                except (ValueError, TypeError):
+                    self.current_grid_num = None
+                self.current_mode = mode
                 state = bot.get("state", "unknown")
                 investment = self._safe_float(bot.get("investment"))
                 total_pnl = self._safe_float(bot.get("totalPnl"))
@@ -167,6 +174,8 @@ class GridController:
                 self.paused = False
                 self.current_lower = float(lower)
                 self.current_upper = float(upper)
+                self.current_grid_num = int(count)
+                self.current_mode = GRID_MODE
                 self._log(f"그리드봇 시작 | bot_id={self.bot_id} | 범위={lower}~{upper} | {count}개 그리드")
             except Exception as e:
                 self._log(f"그리드봇 시작 응답 파싱 실패: {e}", level="ERROR")
