@@ -1450,6 +1450,88 @@ class GridAgent:
                 total_orders = pos.get("total_count", "0")
                 fill_info = f"\n  체결: {filled}/{total_orders}건"
 
+            # 미체결 주문 그리드 시각화
+            grid_visual = ""
+            try:
+                pending = self.controller.get_pending_orders()
+                sells = pending.get("sell", [])
+                buys = pending.get("buy", [])
+
+                if sells or buys:
+                    coin = config.SYMBOL.split("-")[0]
+                    lines = []
+                    lines.append(f"\n{'─' * 28}")
+                    lines.append(f"{coin} 봇 현재 포지션 (현재가: {price:,.0f})")
+                    lines.append("")
+
+                    # 매도 주문 (높은 가격부터)
+                    for s in sells:
+                        px_int = int(s['price'])
+                        diff = abs(px_int - int(price))
+                        if diff <= 1:
+                            lines.append(
+                                f"  {px_int:,} — 매도 대기 ⬆ ← 현재가 {int(price):,} (거의 체결!!)"
+                            )
+                        else:
+                            lines.append(f"  {px_int:,} — 매도 대기 ⬆")
+
+                    # 현재가 라인
+                    lines.append(f"  ----- 현재가 {int(price):,} -----")
+
+                    # 매수 주문 (높은 가격부터)
+                    for b in buys:
+                        px_int = int(b['price'])
+                        diff = abs(int(price) - px_int)
+                        if diff <= 1:
+                            lines.append(
+                                f"  {px_int:,} — 매수 대기 ⬇ ← 현재가 {int(price):,} (거의 체결!!)"
+                            )
+                        else:
+                            lines.append(f"  {px_int:,} — 매수 대기 ⬇")
+
+                    # 포지션 요약
+                    total_sell_sz = sum(s['size'] for s in sells)
+                    total_sell_amt = sum(s['amount'] for s in sells)
+                    total_buy_sz = sum(b['size'] for b in buys)
+                    total_buy_amt = sum(b['amount'] for b in buys)
+
+                    sell_prices = [int(s['price']) for s in sells]
+                    buy_prices = [int(b['price']) for b in buys]
+                    sell_range = f"{min(sell_prices):,}~{max(sell_prices):,}" if sell_prices else "-"
+                    buy_range = f"{min(buy_prices):,}~{max(buy_prices):,}" if buy_prices else "-"
+
+                    lines.append("")
+                    lines.append("포지션 요약")
+                    lines.append(f"  {'구분':<8}{'가격':<18}{'수량':<12}{'금액'}")
+                    lines.append(
+                        f"  {'매도대기':<8}{sell_range:<18}"
+                        f"{total_sell_sz:.4f} {coin:<6}~{total_sell_amt:,.0f} USDT"
+                    )
+                    lines.append(
+                        f"  {'매수대기':<8}{buy_range} ({len(buys)}칸)  "
+                        f"{total_buy_sz:.4f} {coin:<6}~{total_buy_amt:,.0f} USDT"
+                    )
+
+                    # 가장 가까운 체결 알림
+                    nearest_sell = sells[-1]['price'] if sells else None
+                    nearest_buy = buys[0]['price'] if buys else None
+                    if nearest_sell and abs(nearest_sell - price) <= 2:
+                        lines.append(
+                            f"\n🔥 {int(nearest_sell):,} 매도가 딱 "
+                            f"{abs(nearest_sell - price):.0f} USDT 차이! "
+                            f"조금만 올라오면 바로 체결!"
+                        )
+                    elif nearest_buy and abs(price - nearest_buy) <= 2:
+                        lines.append(
+                            f"\n🔥 {int(nearest_buy):,} 매수가 딱 "
+                            f"{abs(price - nearest_buy):.0f} USDT 차이! "
+                            f"조금만 내려오면 바로 체결!"
+                        )
+
+                    grid_visual = "\n".join(lines)
+            except Exception:
+                pass
+
             grid_section = (
                 f"\n{'─' * 28}\n"
                 f"🤖 그리드봇: {bot_status}\n"
@@ -1457,6 +1539,7 @@ class GridAgent:
                 f"   위치: {position_pct:.0f}% ({pos_label})\n"
                 f"   {grid_info}{spacing_str}"
                 f"{fill_info}"
+                f"{grid_visual}"
                 f"{portfolio_lines}\n"
                 f"🔄 재시작: 당일 {self.grid_restart_count}회 | 수수료: {self.daily_fees:,.4f}"
             )
