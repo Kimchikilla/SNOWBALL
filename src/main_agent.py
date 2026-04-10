@@ -433,6 +433,23 @@ class GridAgent:
         MAGENTA = "\033[95m"
         BOLD = "\033[1m"
 
+        # 자정 기준 일일 카운터 리셋
+        today = datetime.now().strftime("%Y-%m-%d")
+        if not hasattr(self, "_current_date"):
+            self._current_date = today
+        if self._current_date != today:
+            self._current_date = today
+            self.daily_buys = 0
+            self.daily_sells = 0
+            self.daily_buy_vol = 0.0
+            self.daily_sell_vol = 0.0
+            self.daily_buy_cost = 0.0
+            self.daily_sell_revenue = 0.0
+            self.daily_fees = 0.0
+            self.daily_realized = 0.0
+            self.grid_restart_count = 0
+            self._log("📅 날짜 변경 — 일일 카운터 리셋")
+
         print()
         print(f"{CYAN}{BOLD}{'═' * 60}{RESET}")
         print(f"{CYAN}{BOLD}  TICK #{self.loop_count}  [{ts}]  {config.SYMBOL}{RESET}")
@@ -563,8 +580,8 @@ class GridAgent:
             print(f"  {RED}✗ 결정 실패, MAINTAIN 유지: {e}{RESET}")
 
         action_colors = {
-            "MAINTAIN": GREEN, "WIDEN": YELLOW, "PAUSE": YELLOW,
-            "STOP": RED, "REDUCE": YELLOW, "SHIFT_UP": CYAN, "SHIFT_DOWN": CYAN
+            "MAINTAIN": GREEN, "WIDEN": YELLOW,
+            "STOP": RED, "SHIFT_UP": CYAN, "SHIFT_DOWN": CYAN
         }
         ac = action_colors.get(action, RESET)
         print(f"  {BOLD}→ 결정: {ac}{action}{RESET}")
@@ -698,113 +715,44 @@ class GridAgent:
 
         # 실제 LLM 호출
         combined_ctx = fee_ctx + event_ctx
-        if True:
-            try:
-                if config.MULTI_AGENT_MODE and self.multi_agent.available:
-                    result = self.multi_agent.judge_with_detail(
-                        signal, price, fee_context=combined_ctx
-                    )
-                    self._log(
-                        f"멀티 에이전트 합의: {result.final_action} "
-                        f"(동의율={result.agreement_rate:.0f}%, score={score})"
-                    )
-                    self.notifier.send(format_consensus_for_telegram(result))
-                    self.cost_guard.post_success(signal, result.final_action, num_calls=5)
-                    # 수수료 가드: 재시작 액션이면 체크
-                    allowed, skip_reason = self._check_restart_allowed(
-                        result.final_action, price
-                    )
-                    if not allowed:
-                        self._log(f"🛡️ 수수료 가드: {skip_reason} → MAINTAIN 유지")
-                        self.notifier.send(
-                            f"🛡️ 그리드 조정 스킵\n"
-                            f"에이전트 판단: {result.final_action}\n"
-                            f"사유: {skip_reason}\n"
-                            f"→ MAINTAIN 유지"
-                        )
-                        return "MAINTAIN"
-                    return result.final_action
-                else:
-                    llm_action = self.llm_judge.judge(
-                        signal, price, fee_context=combined_ctx
-                    )
-                    self._log(f"LLM 단독 판단: {llm_action} (score={score})")
-                    self.cost_guard.post_success(signal, llm_action, num_calls=1)
-                    # 수수료 가드
-                    allowed, skip_reason = self._check_restart_allowed(
-                        llm_action, price
-                    )
-                    if not allowed:
-                        self._log(f"🛡️ 수수료 가드: {skip_reason} → MAINTAIN 유지")
-                        self.notifier.send(
-                            f"🛡️ 그리드 조정 스킵\n"
-                            f"에이전트 판단: {llm_action}\n"
-                            f"사유: {skip_reason}\n"
-                            f"→ MAINTAIN 유지"
-                        )
-                        return "MAINTAIN"
-                    return llm_action
-            except Exception as e:
-                self._log(f"LLM 호출 실패: {e} → 에러 복구 캐스케이드", level="ERROR")
-                self.cost_guard.post_failure()
-
-                # 에러 복구 캐스케이드: 무료 → 저비용 → 고비용
-                level = self.cost_guard.recovery.next_strategy()
-                if level <= 1:
-                    # Level 0-1: 룰 베이스 폴백 (무료)
-                    fallback = self.cost_guard.recovery.rule_based_fallback(
-                        score, trend, trend_strength
-                    )
-                    self._log(f"복구 Level {level}: 룰 베이스 → {fallback}")
-                    return fallback
-                elif level == 2:
-                    # Level 2: 단일 LLM 재시도 (저비용)
-                    try:
-                        llm_action = self.llm_judge.judge(signal, price)
-                        self._log(f"복구 Level 2: 단일 LLM → {llm_action}")
-                        self.cost_guard.post_success(signal, llm_action, num_calls=1)
-                        return llm_action
-                    except Exception:
-                        pass
-                # Level 3 이상: 최종 룰 베이스 폴백
-                return self.cost_guard.recovery.rule_based_fallback(
-                    score, trend, trend_strength
+        try:
+            if config.MULTI_AGENT_MODE and self.multi_agent.available:
+                result = self.multi_agent.judge_with_detail(
+                    signal, price, fee_context=combined_ctx
                 )
-
-        # 명확한 구간은 룰 베이스로 결정
-        if score <= config.SCORE_CAUTION:
-            action = "MAINTAIN"
-        elif score <= config.SCORE_WARNING:
-            action = "WIDEN"
-        elif score <= config.SCORE_EMERGENCY:
-            action = "MAINTAIN"  # 높은 스코어도 봇은 유지, 알림만
-        else:
-            return "STOP"
-
-        # ── MAINTAIN 시 트렌드 기반 그리드 시프트 ──
-        if action == "MAINTAIN" and trend_strength >= 25:
-            # 쿨다운 체크: 마지막 시프트 이후 10분 경과 필요
-            now = datetime.now()
-            shift_allowed = (
-                self.last_shift_time is None
-                or (now - self.last_shift_time).total_seconds() >= 600
+                self._log(
+                    f"멀티 에이전트 합의: {result.final_action} "
+                    f"(동의율={result.agreement_rate:.0f}%, score={score})"
+                )
+                self.notifier.send(format_consensus_for_telegram(result))
+                self.cost_guard.post_success(signal, result.final_action, num_calls=5)
+                action = result.final_action
+            else:
+                action = self.llm_judge.judge(
+                    signal, price, fee_context=combined_ctx
+                )
+                self._log(f"LLM 단독 판단: {action} (score={score})")
+                self.cost_guard.post_success(signal, action, num_calls=1)
+        except Exception as e:
+            self._log(f"LLM 호출 실패: {e} → 룰 베이스 폴백", level="ERROR")
+            self.cost_guard.post_failure()
+            action = self.cost_guard.recovery.rule_based_fallback(
+                score, trend, trend_strength
             )
+            self._log(f"폴백 결정: {action}")
 
-            if shift_allowed:
-                grid_lower = getattr(self.controller, "current_lower", None)
-                grid_upper = getattr(self.controller, "current_upper", None)
-
-                if grid_lower is not None and grid_upper is not None:
-                    grid_range = grid_upper - grid_lower
-                    upper_threshold = grid_upper - grid_range * 0.2
-                    lower_threshold = grid_lower + grid_range * 0.2
-
-                    if trend == "BULLISH" and price >= upper_threshold:
-                        self._log(f"상승 추세 + 그리드 상단 진입 (ADX={trend_strength:.1f}) → SHIFT_UP")
-                        return "SHIFT_UP"
-                    elif trend == "BEARISH" and price <= lower_threshold:
-                        self._log(f"하락 추세 + 그리드 하단 진입 (ADX={trend_strength:.1f}) → SHIFT_DOWN")
-                        return "SHIFT_DOWN"
+        # 수수료 가드: 재시작 액션이면 체크
+        if action in ("WIDEN", "SHIFT_UP", "SHIFT_DOWN"):
+            allowed, skip_reason = self._check_restart_allowed(action, price)
+            if not allowed:
+                self._log(f"🛡️ 수수료 가드: {skip_reason} → MAINTAIN 유지")
+                self.notifier.send(
+                    f"🛡️ 그리드 조정 스킵\n"
+                    f"에이전트 판단: {action}\n"
+                    f"사유: {skip_reason}\n"
+                    f"→ MAINTAIN 유지"
+                )
+                return "MAINTAIN"
 
         return action
 
@@ -959,9 +907,11 @@ class GridAgent:
                 continue
 
             cost = px * sz
-            self.daily_fees += abs(fee)
-            self.total_fees_paid += abs(fee)
             coin = config.SYMBOL.split("-")[0]
+            # 수수료 USDT 환산 (매수=코인으로 차감 → 현재가 곱, 매도=USDT)
+            fee_usdt = abs(fee) * current_price if side == "buy" else abs(fee)
+            self.daily_fees += fee_usdt
+            self.total_fees_paid += fee_usdt
 
             if side == "buy":
                 emoji = "🟢"

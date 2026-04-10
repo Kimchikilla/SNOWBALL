@@ -23,11 +23,11 @@ class GridController:
     """
     OKX Spot Grid Bot 제어 클래스.
 
-    상태 머신에 따라 아래 액션을 실행합니다:
-      NORMAL    → maintain_grid()
-      CAUTION   → widen_grid(atr_multiplier=2.0)
-      WARNING   → pause_new_orders()
-      EMERGENCY → emergency_stop()
+    이벤트 기반 액션:
+      MAINTAIN  → ensure_grid_running()
+      WIDEN     → widen_grid()
+      SHIFT     → shift_grid_center()
+      STOP      → emergency_stop()
     """
 
     def __init__(self):
@@ -200,10 +200,9 @@ class GridController:
         """
         EMERGENCY 상태: 모든 포지션을 시장가로 즉시 청산합니다.
         """
-        self._log("⚠️ 긴급 청산 실행 (EMERGENCY)", level="CRITICAL")
-        result = self.stop_grid(sell_remaining=True)     # sell_remaining=True → 보유 코인 시장가 매도
+        self._log("긴급 청산 실행 (EMERGENCY)", level="CRITICAL")
+        result = self.stop_grid(sell_remaining=True)
         self.bot_id = None
-        self.paused = False
         return result
 
     def stop_grid(self, sell_remaining: bool = False) -> dict:
