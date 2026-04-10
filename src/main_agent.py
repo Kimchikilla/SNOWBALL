@@ -909,9 +909,19 @@ class GridAgent:
     # ─── 체결 감시 ─────────────────────────────────────────
 
     def _check_fills(self, current_price: float):
-        """새로운 체결 내역을 감지하고 텔레그램으로 알림."""
+        """그리드봇 체결 내역을 감지하고 텔레그램으로 알림."""
+        if not self.controller.bot_id:
+            return
         try:
-            fills = self.controller.get_recent_fills(limit=10)
+            resp = self.controller._get(
+                "/api/v5/tradingBot/grid/sub-orders",
+                params={
+                    "algoId": self.controller.bot_id,
+                    "algoOrdType": "grid",
+                    "type": "filled",
+                }
+            )
+            fills = resp.get("data", [])
         except Exception as e:
             self._log(f"체결 내역 조회 실패: {e}", level="ERROR")
             return
@@ -921,7 +931,7 @@ class GridAgent:
 
         # 첫 실행 시 마지막 ID만 기록
         if self.last_fill_id is None:
-            self.last_fill_id = fills[0].get("tradeId", "") if isinstance(fills[0], dict) else ""
+            self.last_fill_id = fills[0].get("ordId", "") if isinstance(fills[0], dict) else ""
             return
 
         # 새 체결만 필터링 (최신순으로 오므로 last_fill_id 이전까지)
@@ -929,28 +939,29 @@ class GridAgent:
         for f in fills:
             if not isinstance(f, dict):
                 continue
-            if f.get("tradeId", "") == self.last_fill_id:
+            if f.get("ordId", "") == self.last_fill_id:
                 break
             new_fills.append(f)
 
         if not new_fills:
             return
 
-        self.last_fill_id = new_fills[0].get("tradeId", "")
+        self.last_fill_id = new_fills[0].get("ordId", "")
 
         for f in reversed(new_fills):
             try:
                 side = f.get("side", "")
-                px   = float(f.get("fillPx", 0))
-                sz   = float(f.get("fillSz", 0))
+                px   = float(f.get("px", 0))
+                sz   = float(f.get("sz", 0))
                 fee  = float(f.get("fee", 0))
             except (ValueError, TypeError) as e:
-                self._log(f"체결 데이터 파싱 오류: {e} | data={f}", level="ERROR")
+                self._log(f"체결 데이터 파싱 오류: {e}", level="ERROR")
                 continue
 
-            cost = px * sz  # 이 체결의 USDT 금액
+            cost = px * sz
             self.daily_fees += abs(fee)
             self.total_fees_paid += abs(fee)
+            coin = config.SYMBOL.split("-")[0]
 
             if side == "buy":
                 emoji = "🟢"
@@ -958,35 +969,28 @@ class GridAgent:
                 self.daily_buys += 1
                 self.daily_buy_vol += sz
                 self.daily_buy_cost += cost
-                # 포지션 추적: 매수 → 보유량/비용 증가
                 self.holding_qty += sz
                 self.holding_cost += cost
                 avg_price = self.holding_cost / self.holding_qty if self.holding_qty > 0 else px
-                pnl_line = f"평균 매수가: {avg_price:,.2f} USDT\n보유: {self.holding_qty:.6f}"
+                pnl_line = f"평균 매수가: {avg_price:,.2f} USDT"
             else:
                 emoji = "🔴"
                 label = "매도"
                 self.daily_sells += 1
                 self.daily_sell_vol += sz
                 self.daily_sell_revenue += cost
-                # 포지션 추적: 매도 → 실현 손익 계산
                 if self.holding_qty > 0:
                     avg_buy = self.holding_cost / self.holding_qty
                     profit = (px - avg_buy) * sz - abs(fee)
                     self.realized_pnl += profit
                     self.daily_realized += profit
-                    # 보유량/비용 차감
                     sell_ratio = min(sz / self.holding_qty, 1.0)
                     self.holding_cost -= self.holding_cost * sell_ratio
                     self.holding_qty = max(self.holding_qty - sz, 0.0)
                     profit_emoji = "💰" if profit >= 0 else "💸"
-                    pnl_line = (
-                        f"{profit_emoji} 실현 손익: {profit:+,.4f} USDT\n"
-                        f"누적 실현: {self.realized_pnl:+,.4f} USDT\n"
-                        f"잔여 보유: {self.holding_qty:.6f}"
-                    )
+                    pnl_line = f"{profit_emoji} 실현 손익: {profit:+,.4f} USDT"
                 else:
-                    pnl_line = "보유: 0 (포지션 없음)"
+                    pnl_line = ""
 
             diff = current_price - px
             diff_pct = diff / px * 100 if px > 0 else 0
@@ -995,19 +999,17 @@ class GridAgent:
             msg = (
                 f"{emoji} {label} 체결 | {config.SYMBOL}\n"
                 f"{'━' * 28}\n"
-                f"💵 {label} 가격 : {px:,.2f} USDT\n"
-                f"📦 수량      : {sz:.6f}\n"
+                f"💵 {label} 가격 : {px:,.0f} USDT\n"
+                f"📦 수량      : {sz:.6f} {coin}\n"
                 f"💲 금액      : {cost:,.2f} USDT\n"
                 f"🏷️ 수수료    : {abs(fee):.6f}\n"
                 f"{'━' * 28}\n"
                 f"{pnl_line}\n"
-                f"{'━' * 28}\n"
-                f"📊 현재 {config.SYMBOL} 시세\n"
-                f"   {current_price:,.2f} USDT\n"
-                f"   {diff_emoji} 체결가 대비 {diff:+,.2f} ({diff_pct:+.2f}%)"
+                f"📊 현재가: {current_price:,.0f} USDT "
+                f"({diff_emoji} {diff:+,.0f})"
             )
             self.notifier.send(msg)
-            self._log(f"{emoji} {label} 체결 | 가격={px:,.2f} | 수량={sz} | 금액={cost:,.2f}")
+            self._log(f"{emoji} {label} 체결 | {px:,.0f} × {sz:.6f} = {cost:,.2f} USDT")
 
     # ─── 일일 리포트 ─────────────────────────────────────
 
