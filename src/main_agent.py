@@ -1137,6 +1137,38 @@ class GridAgent:
                 f"  {total_emoji} 합계: {total_pnl:+,.4f} USDT"
             )
 
+        # 그리드 범위 & 가격 위치
+        grid_section = ""
+        gl = self.controller.current_lower
+        gu = self.controller.current_upper
+        if gl is not None and gu is not None and gu > gl:
+            grid_range = gu - gl
+            position_pct = (price - gl) / grid_range * 100
+            position_pct = max(0, min(100, position_pct))
+
+            # 위치 바 (10칸)
+            bar_pos = int(position_pct / 10)
+            bar = "░" * bar_pos + "●" + "░" * (10 - bar_pos)
+
+            # 범위 이탈 감지
+            if price > gu:
+                pos_label = "⚠️ 상단 이탈!"
+            elif price < gl:
+                pos_label = "⚠️ 하단 이탈!"
+            elif position_pct >= 80:
+                pos_label = "상단 근접"
+            elif position_pct <= 20:
+                pos_label = "하단 근접"
+            else:
+                pos_label = "범위 내"
+
+            grid_section = (
+                f"\n{'─' * 28}\n"
+                f"📐 그리드 범위\n"
+                f"  {gl:,.2f} [{bar}] {gu:,.2f}\n"
+                f"  위치: {position_pct:.0f}% ({pos_label})"
+            )
+
         msg = (
             f"{emoji} TICK #{self.loop_count} | {config.SYMBOL}\n"
             f"{'━' * 28}\n"
@@ -1147,6 +1179,7 @@ class GridAgent:
             f"액션: {action}"
             f"{pnl_str}"
             f"{loss_str}"
+            f"{grid_section}"
             f"{fill_section}\n"
             f"{'─' * 28}\n"
             f"ATR={signal.atr_current:.1f} | RSI={signal.rsi:.1f} | "
