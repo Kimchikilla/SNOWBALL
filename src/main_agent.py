@@ -9,7 +9,7 @@ import sys
 import time
 import json
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import httpx
@@ -257,6 +257,11 @@ class GridAgent:
         self.grid_restart_times: list = []   # 재시작 시각 기록
         self.grid_restart_count: int = 0     # 당일 재시작 횟수
         self.total_fees_paid: float = 0.0    # 누적 수수료
+        # 그리드 이탈 추적
+        self.grid_breakout_time: Optional[datetime] = None  # 이탈 시작 시각
+        self.grid_breakout_dir: Optional[str] = None        # "ABOVE" | "BELOW"
+        self.grid_breakout_notified: bool = False            # 이탈 알림 발송 여부
+        self.BREAKOUT_WAIT_SEC: int = 6 * 3600               # 재배치 판단까지 대기 (6시간)
 
     @staticmethod
     def _print_disclaimer():
@@ -508,6 +513,38 @@ class GridAgent:
         except Exception as e:
             print(f"  {RED}✗ 감시 실패: {e}{RESET}")
 
+        # 4.5 그리드 이탈 체크
+        breakout_action = self._check_grid_breakout(signal, price)
+        if breakout_action is not None:
+            gl = self.controller.current_lower
+            gu = self.controller.current_upper
+            elapsed_str = ""
+            if self.grid_breakout_time:
+                elapsed = (datetime.now() - self.grid_breakout_time).total_seconds()
+                elapsed_str = f" | 이탈 {elapsed/60:.0f}분"
+            print(f"  {YELLOW}⚠ 그리드 이탈 감지{RESET} | "
+                  f"범위: {gl:,.2f}~{gu:,.2f} | "
+                  f"현재가: {price:,.2f}"
+                  f"{elapsed_str} → {breakout_action}")
+            action = breakout_action
+            # 바로 실행으로 점프
+            action_colors = {
+                "MAINTAIN": GREEN, "WIDEN": YELLOW, "PAUSE": YELLOW,
+                "STOP": RED, "REDUCE": YELLOW, "SHIFT_UP": CYAN, "SHIFT_DOWN": CYAN
+            }
+            ac = action_colors.get(action, RESET)
+            print(f"\n{DIM}[6/10]{RESET} {BOLD}액션 실행{RESET} ─ {ac}{action}{RESET}")
+            try:
+                self._execute(action, signal, price)
+                print(f"  {GREEN}✓{RESET} 실행 완료")
+            except Exception as e:
+                print(f"  {RED}✗ 실행 실패: {e}{RESET}")
+            # 나머지 스텝 계속 (리포트, 상태변화 등)
+            self._post_action_steps(signal, price, action, trend, trend_strength,
+                                     emoji, score_color, trend_color, ac,
+                                     DIM, RESET, BOLD, GREEN, RED, YELLOW, CYAN)
+            return
+
         # 5. 의사결정
         print(f"\n{DIM}[5/10]{RESET} {BOLD}의사결정{RESET} ─ 추세 판단 → 리스크 스코어 → 에이전트 합의")
         action = "MAINTAIN"
@@ -531,6 +568,14 @@ class GridAgent:
         except Exception as e:
             print(f"  {RED}✗ 실행 실패: {e}{RESET}")
 
+        self._post_action_steps(signal, price, action, trend, trend_strength,
+                                 emoji, score_color, trend_color, ac,
+                                 DIM, RESET, BOLD, GREEN, RED, YELLOW, CYAN)
+
+    def _post_action_steps(self, signal, price, action, trend, trend_strength,
+                            emoji, score_color, trend_color, ac,
+                            DIM, RESET, BOLD, GREEN, RED, YELLOW, CYAN):
+        """틱의 7~10 스텝 (일일 리포트, 상태 변화, 비용, 요약)."""
         # 7. 일일 리포트
         print(f"\n{DIM}[7/10]{RESET} {BOLD}일일 리포트 체크{RESET} ─ {config.DAILY_REPORT_HOUR}시 발송")
         try:
@@ -1089,6 +1134,167 @@ class GridAgent:
         """그리드 재시작 기록."""
         self.grid_restart_times.append(datetime.now())
         self.grid_restart_count += 1
+
+    # ─── 그리드 이탈 감지 & 대응 ─────────────────────────────
+
+    def _check_grid_breakout(self, signal, price: float) -> Optional[str]:
+        """
+        가격이 그리드 범위를 이탈했는지 감지.
+        - 이탈 직후: 알림 + 대기 (급락이면 PAUSE)
+        - 6시간 이상 이탈: 에이전트에게 재배치 판단 요청
+        - 복귀 시: 타이머 리셋
+        Returns: 오버라이드할 액션 or None (정상 흐름)
+        """
+        gl = self.controller.current_lower
+        gu = self.controller.current_upper
+        if gl is None or gu is None:
+            return None
+
+        now = datetime.now()
+
+        # ── 범위 안이면 이탈 상태 리셋 ──
+        if gl <= price <= gu:
+            if self.grid_breakout_time is not None:
+                elapsed = (now - self.grid_breakout_time).total_seconds()
+                self._log(f"✅ 그리드 범위 복귀 (이탈 {elapsed/60:.0f}분 만)")
+                self.notifier.send(
+                    f"✅ 그리드 범위 복귀 | {config.SYMBOL}\n"
+                    f"{'─' * 28}\n"
+                    f"현재가: {price:,.2f} USDT\n"
+                    f"범위: {gl:,.2f} ~ {gu:,.2f}\n"
+                    f"이탈 시간: {elapsed/60:.0f}분\n"
+                    f"→ 자동 매매 재개"
+                )
+                self.grid_breakout_time = None
+                self.grid_breakout_dir = None
+                self.grid_breakout_notified = False
+            return None
+
+        # ── 이탈 감지 ──
+        direction = "ABOVE" if price > gu else "BELOW"
+
+        # 첫 이탈 감지
+        if self.grid_breakout_time is None:
+            self.grid_breakout_time = now
+            self.grid_breakout_dir = direction
+            self.grid_breakout_notified = False
+
+        elapsed = (now - self.grid_breakout_time).total_seconds()
+        elapsed_min = elapsed / 60
+        elapsed_hr = elapsed / 3600
+
+        # 이탈 알림 (최초 1회)
+        if not self.grid_breakout_notified:
+            self.grid_breakout_notified = True
+            dir_emoji = "⬆️" if direction == "ABOVE" else "⬇️"
+            dir_label = "상단 이탈" if direction == "ABOVE" else "하단 이탈"
+            boundary = gu if direction == "ABOVE" else gl
+            diff = abs(price - boundary)
+            diff_pct = diff / boundary * 100
+
+            self._log(f"⚠️ 그리드 {dir_label} | {price:,.2f} (경계: {boundary:,.2f})")
+            self.notifier.send(
+                f"{dir_emoji} 그리드 {dir_label} | {config.SYMBOL}\n"
+                f"{'━' * 28}\n"
+                f"현재가  : {price:,.2f} USDT\n"
+                f"경계    : {boundary:,.2f} USDT\n"
+                f"이탈 폭 : {diff:,.2f} ({diff_pct:.2f}%)\n"
+                f"{'━' * 28}\n"
+                f"범위: {gl:,.2f} ~ {gu:,.2f}\n"
+                f"{'─' * 28}\n"
+                f"⏳ 6시간 대기 후 재배치 여부 판단\n"
+                f"가격이 범위로 돌아오면 자동 매매 재개"
+            )
+
+        # 급락 이탈이면 PAUSE (추가 매수 방지)
+        if direction == "BELOW" and not self.controller.paused:
+            self._log("하단 이탈 → PAUSE (추가 매수 방지)")
+            return "PAUSE"
+
+        # ── 6시간 이상 이탈 → 에이전트에게 재배치 판단 요청 ──
+        if elapsed >= self.BREAKOUT_WAIT_SEC:
+            self._log(f"그리드 이탈 {elapsed_hr:.1f}시간 경과 → 에이전트 재배치 판단 요청")
+
+            # 수수료 가드 체크
+            allowed, skip_reason = self._check_restart_allowed("SHIFT_UP", price)
+            if not allowed:
+                self._log(f"수수료 가드: {skip_reason} → 대기 유지")
+                return "MAINTAIN"
+
+            # 에이전트 판단
+            fee_ctx = self._build_fee_context(price)
+            breakout_ctx = (
+                f"\n=== 그리드 이탈 상황 ===\n"
+                f"이탈 방향: {'상단 (가격이 그리드 위)' if direction == 'ABOVE' else '하단 (가격이 그리드 아래)'}\n"
+                f"이탈 시간: {elapsed_hr:.1f}시간\n"
+                f"현재 그리드: {gl:,.2f} ~ {gu:,.2f}\n"
+                f"현재가: {price:,.2f}\n"
+                f"그리드 범위로 돌아올 가능성과 재배치 수수료를 비교해서 판단하세요.\n"
+                f"재배치 = WIDEN, 계속 대기 = MAINTAIN\n"
+            )
+
+            try:
+                if config.MULTI_AGENT_MODE and self.multi_agent.available:
+                    result = self.multi_agent.judge_with_detail(
+                        signal, price, fee_context=fee_ctx + breakout_ctx
+                    )
+                    action = result.final_action
+                    self.notifier.send(
+                        f"🤖 이탈 재배치 판단 | {config.SYMBOL}\n"
+                        f"이탈: {elapsed_hr:.1f}시간 ({direction})\n"
+                        f"에이전트 결정: {action}\n"
+                        f"합의율: {result.agreement_rate:.0f}%\n"
+                        f"사유: {result.reasoning}"
+                    )
+                else:
+                    action = self.llm_judge.judge(
+                        signal, price, fee_context=fee_ctx + breakout_ctx
+                    )
+                    self.notifier.send(
+                        f"🤖 이탈 재배치 판단 | {config.SYMBOL}\n"
+                        f"이탈: {elapsed_hr:.1f}시간 ({direction})\n"
+                        f"LLM 결정: {action}"
+                    )
+
+                if action == "WIDEN":
+                    # 재배치 실행
+                    self._record_grid_restart()
+                    old_lower, old_upper = gl, gu
+                    self.controller.shift_grid_center(price, price)
+                    self.grid_breakout_time = None
+                    self.grid_breakout_dir = None
+                    self.grid_breakout_notified = False
+                    self.notifier.send(
+                        f"🔄 이탈 후 그리드 재배치 | {config.SYMBOL}\n"
+                        f"{'─' * 28}\n"
+                        f"이전: {old_lower:,.2f} ~ {old_upper:,.2f}\n"
+                        f"새 범위: {self.controller.current_lower:,.2f} ~ "
+                        f"{self.controller.current_upper:,.2f}\n"
+                        f"중심: {price:,.2f} USDT\n"
+                        f"이탈 시간: {elapsed_hr:.1f}시간"
+                    )
+                    return "MAINTAIN"  # 재배치 완료, 정상 흐름
+                else:
+                    # 에이전트가 대기 결정 → 타이머를 1시간 뒤로 리셋 (매 틱 재판단 방지)
+                    self.grid_breakout_time = now - timedelta(
+                        seconds=self.BREAKOUT_WAIT_SEC - 3600
+                    )
+                    return "MAINTAIN"
+
+            except Exception as e:
+                self._log(f"이탈 재배치 판단 실패: {e}", level="ERROR")
+                return "MAINTAIN"
+
+        # 6시간 미만 이탈 → 대기
+        if self.loop_count % 5 == 0:  # 5틱마다 대기 알림
+            self.notifier.send(
+                f"⏳ 그리드 이탈 대기 중 | {config.SYMBOL}\n"
+                f"방향: {'상단' if direction == 'ABOVE' else '하단'}\n"
+                f"경과: {elapsed_min:.0f}분 / {self.BREAKOUT_WAIT_SEC//60}분\n"
+                f"현재가: {price:,.2f} USDT\n"
+                f"범위: {gl:,.2f} ~ {gu:,.2f}"
+            )
+        return "MAINTAIN"
 
     # ─── 틱 리포트 텔레그램 발송 ─────────────────────────────
 
