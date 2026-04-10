@@ -163,7 +163,7 @@ class MarketAnalyzer:
 
     def _volume_score(self, volumes):
         """거래량 급등 여부 → 최대 20점 (3캔들 롤링 평균)"""
-        avg = float(np.mean(volumes[-30:]))
+        avg = float(np.mean(volumes[-30:-3])) if len(volumes) > 30 else float(np.mean(volumes[:-3]))
         # 단일 캔들 노이즈 방지: 최근 3개 캔들 평균
         cur = float(np.mean(volumes[-3:])) if len(volumes) >= 3 else float(volumes[-1])
         ratio = cur / (avg + 1e-9)

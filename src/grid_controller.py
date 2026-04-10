@@ -183,7 +183,7 @@ class GridController:
         if not self.bot_id:
             return {"status": "no_bot"}
 
-        wide_range = atr_value * ATR_PERIOD * 2    # 넓힐 폭
+        wide_range = atr_value * 2    # ATR의 2배를 상하로 적용
         new_lower  = max(current_price - wide_range, GRID_LOWER * 0.8)
         new_upper  = min(current_price + wide_range, GRID_UPPER * 1.2)
 
