@@ -26,34 +26,7 @@ from cost_guard import CostGuard
 
 # ──────────────────────────────────────────────────────────────
 class Notifier:
-    """텔레그램 알림 발송 + 명령어 수신"""
-
-    COMMANDS = {
-        "/stop": "에이전트 완전 종료 (그리드봇 유지)",
-        "/pause": "그리드봇 일시정지",
-        "/resume": "그리드봇 재개",
-        "/status": "현재 상태 조회",
-        "/emergency": "긴급 청산 (전체 매도)",
-        "/help": "명령어 목록",
-    }
-
-    def __init__(self):
-        self._last_update_id = 0
-        # 시작 시 기존 메시지 무시
-        self._flush_old_messages()
-
-    def _flush_old_messages(self):
-        """기존 메시지를 무시하고 최신 update_id만 기록."""
-        if not config.TELEGRAM_TOKEN:
-            return
-        try:
-            url = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/getUpdates"
-            resp = httpx.get(url, params={"limit": 1, "offset": -1, "timeout": 0}, timeout=5)
-            data = resp.json()
-            if data.get("ok") and data.get("result"):
-                self._last_update_id = data["result"][-1]["update_id"] + 1
-        except Exception:
-            pass
+    """텔레그램 알림 발송"""
 
     def send(self, message: str):
         # 항상 터미널에도 출력
@@ -73,41 +46,6 @@ class Notifier:
             print(f"[Notifier] 텔레그램 발송 타임아웃")
         except Exception as e:
             print(f"[Notifier] 텔레그램 발송 실패: {e}")
-
-    def check_commands(self) -> Optional[str]:
-        """텔레그램에서 새 명령어가 있는지 확인. 있으면 명령어 반환."""
-        if not config.TELEGRAM_TOKEN or not config.TELEGRAM_CHAT_ID:
-            return None
-        try:
-            url = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/getUpdates"
-            resp = httpx.get(
-                url,
-                params={"offset": self._last_update_id, "limit": 10, "timeout": 0},
-                timeout=5,
-            )
-            data = resp.json()
-            if not data.get("ok") or not data.get("result"):
-                return None
-
-            for update in data["result"]:
-                self._last_update_id = update["update_id"] + 1
-                msg = update.get("message", {})
-                # 본인 chat_id만 허용
-                if str(msg.get("chat", {}).get("id")) != str(config.TELEGRAM_CHAT_ID):
-                    continue
-                text = msg.get("text", "").strip().lower()
-                if text in self.COMMANDS:
-                    return text
-            return None
-        except Exception:
-            return None
-
-    def send_help(self):
-        """명령어 목록 발송."""
-        lines = ["📋 사용 가능한 명령어\n"]
-        for cmd, desc in self.COMMANDS.items():
-            lines.append(f"  {cmd} — {desc}")
-        self.send("\n".join(lines))
 
 
 # ──────────────────────────────────────────────────────────────
@@ -454,14 +392,7 @@ class GridAgent:
             self.notifier.send(f"❌ 그리드봇 시작 실패: {error_msg}")
             sys.exit(1)
 
-        # 시작 시 명령어 안내
-        self.notifier.send_help()
-
         while True:
-            # 텔레그램 명령어 체크
-            if self._handle_telegram_command():
-                break  # /stop 또는 /emergency 시 루프 종료
-
             try:
                 self._tick()
             except KeyboardInterrupt:
@@ -1693,7 +1624,7 @@ class GridAgent:
     # ─── 대기 프로그레스 바 ────────────────────────────────────
 
     def _wait_with_progress(self, seconds: int):
-        """다음 틱까지 프로그레스 바로 대기 시간 시각화. 대기 중에도 텔레그램 명령어 체크."""
+        """다음 틱까지 프로그레스 바로 대기 시간 시각화."""
         BAR_WIDTH = 40
         DIM = "\033[2m"
         CYAN = "\033[96m"
@@ -1718,12 +1649,6 @@ class GridAgent:
             )
             time.sleep(1)
 
-            # 5초마다 텔레그램 명령어 체크
-            if elapsed % 5 == 0 and elapsed > 0:
-                if self._handle_telegram_command():
-                    print()  # 줄바꿈
-                    raise SystemExit("텔레그램 명령어로 종료")
-
         # 완료
         bar = "█" * BAR_WIDTH
         print(
@@ -1741,85 +1666,6 @@ class GridAgent:
             return False
         loss_pct = (self.entry_price - current_price) / self.entry_price * 100
         return loss_pct >= config.MAX_LOSS_PERCENT
-
-    # ─── 텔레그램 명령어 처리 ──────────────────────────────────
-
-    def _handle_telegram_command(self) -> bool:
-        """텔레그램 명령어 체크 & 실행. True 반환 시 루프 종료."""
-        cmd = self.notifier.check_commands()
-        if cmd is None:
-            return False
-
-        self._log(f"📱 텔레그램 명령어 수신: {cmd}")
-
-        if cmd == "/help":
-            self.notifier.send_help()
-
-        elif cmd == "/status":
-            price = self.fetcher.get_current_price()
-            bot_status = "가동 중" if self.controller.bot_id and not self.controller.paused else "정지"
-            gl = self.controller.current_lower
-            gu = self.controller.current_upper
-            gn = self.controller.current_grid_num
-            msg = (
-                f"📊 현재 상태\n"
-                f"{'━' * 28}\n"
-                f"현재가: {price:,.2f} USDT\n"
-                f"봇: {bot_status}\n"
-                f"범위: {gl:,.2f} ~ {gu:,.2f}\n"
-                f"그리드: {gn}칸\n"
-                f"틱: #{self.loop_count}\n"
-                f"상태: {self.prev_state}\n"
-                f"재시작: 당일 {self.grid_restart_count}회\n"
-                f"수수료: {self.daily_fees:,.4f} USDT"
-            )
-            self.notifier.send(msg)
-
-        elif cmd == "/pause":
-            if self.controller.paused:
-                self.notifier.send("⚠️ 이미 일시정지 상태입니다.")
-            else:
-                self.controller.pause_new_orders()
-                self.notifier.send(
-                    f"⏸️ 그리드봇 일시정지 완료\n"
-                    f"텔레그램 명령어로 정지됨\n"
-                    f"/resume 으로 재개할 수 있습니다."
-                )
-
-        elif cmd == "/resume":
-            if not self.controller.paused:
-                self.notifier.send("⚠️ 이미 가동 중입니다.")
-            else:
-                self.controller.resume_grid()
-                self.notifier.send(
-                    f"▶️ 그리드봇 재개 완료\n"
-                    f"텔레그램 명령어로 재개됨"
-                )
-
-        elif cmd == "/stop":
-            self.notifier.send(
-                f"⛔ 에이전트 종료\n"
-                f"텔레그램 명령어로 종료됨\n"
-                f"그리드봇은 OKX에서 계속 실행 중입니다."
-            )
-            self._log("텔레그램 /stop 명령어 — 에이전트 종료")
-            return True
-
-        elif cmd == "/emergency":
-            self.notifier.send(
-                f"🔴 긴급 청산 실행 중...\n"
-                f"텔레그램 명령어로 긴급 청산"
-            )
-            self.controller.emergency_stop()
-            self.notifier.send(
-                f"🔴 긴급 청산 완료\n"
-                f"모든 포지션 시장가 매도\n"
-                f"에이전트를 종료합니다."
-            )
-            self._log("텔레그램 /emergency 명령어 — 긴급 청산 후 종료")
-            return True
-
-        return False
 
     # ─── 로그 ──────────────────────────────────────────────
 
