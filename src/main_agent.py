@@ -1461,12 +1461,27 @@ class GridAgent:
                     + bot_pnl_lines
                 )
 
-            # 그리드봇 체결 정보
+            # 당일 체결 집계 (OKX API)
             fill_info = ""
-            if pos:
-                filled = pos.get("filled_count", "0")
-                total_orders = pos.get("total_count", "0")
-                fill_info = f"\n  체결: {filled}/{total_orders}건"
+            try:
+                today_fills = self.controller.get_today_fills()
+                bc = today_fills["buy_count"]
+                sc = today_fills["sell_count"]
+                tc = today_fills["total_count"]
+                net = today_fills["net_profit"]
+                net_emoji = "🔥" if net > 0 else "🧊" if net < 0 else ""
+
+                fill_info = (
+                    f"\n{'─' * 28}\n"
+                    f"📊 오늘 체결\n"
+                    f"  {'구분':<12}{'건수':>8}\n"
+                    f"  {'매수':<12}{bc:>7}건\n"
+                    f"  {'매도':<12}{sc:>7}건\n"
+                    f"  {'합계':<12}{tc:>7}건\n"
+                    f"  {'오늘 순수익':<12}~{net:+,.2f} USDT {net_emoji}"
+                )
+            except Exception:
+                pass
 
             # 미체결 주문 그리드 시각화
             grid_visual = ""

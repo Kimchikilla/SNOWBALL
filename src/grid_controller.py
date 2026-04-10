@@ -426,6 +426,75 @@ class GridController:
             self._log(f"그리드봇 서브 주문 조회 실패: {e}", level="ERROR")
             return {"buy": [], "sell": []}
 
+    def get_today_fills(self) -> dict:
+        """당일 그리드봇 체결 내역 집계."""
+        if not self.bot_id:
+            return {"buy_count": 0, "sell_count": 0, "total_count": 0,
+                    "buy_amount": 0, "sell_amount": 0, "net_profit": 0, "fees": 0}
+        try:
+            resp = self._get(
+                "/api/v5/tradingBot/grid/sub-orders",
+                params={
+                    "algoId": self.bot_id,
+                    "algoOrdType": "grid",
+                    "type": "filled",
+                }
+            )
+            orders = resp.get("data", [])
+            if not isinstance(orders, list):
+                return {"buy_count": 0, "sell_count": 0, "total_count": 0,
+                        "buy_amount": 0, "sell_amount": 0, "net_profit": 0, "fees": 0}
+
+            # 당일 00:00 UTC+9 기준 밀리초
+            import time as _time
+            now = datetime.now()
+            today_start = datetime(now.year, now.month, now.day)
+            today_ms = int(today_start.timestamp() * 1000)
+
+            buy_count = 0
+            sell_count = 0
+            buy_amount = 0.0
+            sell_amount = 0.0
+            total_fees = 0.0
+
+            for o in orders:
+                if not isinstance(o, dict):
+                    continue
+                fill_time = int(o.get("fillTime", o.get("uTime", 0)))
+                if fill_time < today_ms:
+                    continue  # 당일 이전 체결은 스킵
+
+                side = o.get("side", "")
+                px = self._safe_float(o.get("px"))
+                sz = self._safe_float(o.get("sz"))
+                fee = abs(self._safe_float(o.get("fee")))
+                amount = px * sz
+
+                if side == "buy":
+                    buy_count += 1
+                    buy_amount += amount
+                elif side == "sell":
+                    sell_count += 1
+                    sell_amount += amount
+                total_fees += fee
+
+            # 순수익 = 매도액 - 매수액 - 수수료 (USDT 기준 근사)
+            net_profit = sell_amount - buy_amount - total_fees
+
+            return {
+                "buy_count": buy_count,
+                "sell_count": sell_count,
+                "total_count": buy_count + sell_count,
+                "buy_amount": buy_amount,
+                "sell_amount": sell_amount,
+                "net_profit": net_profit,
+                "fees": total_fees,
+            }
+        except Exception as e:
+            self._log(f"당일 체결 집계 실패: {e}", level="ERROR")
+            return {"buy_count": 0, "sell_count": 0, "total_count": 0,
+                    "buy_amount": 0, "sell_amount": 0, "net_profit": 0, "fees": 0}
+
     # ─── 그리드 중심 이동 & 노출 축소 ──────────────────────────
 
     def shift_grid_center(self, new_center: float, current_price: float,
