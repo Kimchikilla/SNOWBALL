@@ -641,17 +641,15 @@ class GridAgent:
         trend = getattr(signal, "trend", "SIDEWAYS")
         trend_strength = getattr(signal, "trend_strength", 0.0)
 
-        # ── 트렌드 기반 조기 판단 (리스크 스코어 전에 체크) ──
-        if trend == "BEARISH":
-            if trend_strength >= 50:
-                self._log(f"강한 하락 추세 감지 (ADX={trend_strength:.1f}) → PAUSE")
-                return "PAUSE"
-            if trend_strength >= 30:
-                self._log(f"하락 추세 감지 (ADX={trend_strength:.1f}) → REDUCE")
-                return "REDUCE"
+        # 에이전트 호출 조건:
+        # 1. 리스크 스코어 55~80 (기존 애매한 구간)
+        # 2. 강한 추세 (ADX >= 30) — 스코어 상관없이 에이전트 판단 필요
+        need_agent = (
+            config.LLM_TRIGGER_SCORE <= score <= config.SCORE_WARNING
+            or trend_strength >= 30
+        )
 
-        # 점수가 애매한 구간 (CAUTION 경계) → 비용 가드 체크 후 LLM 호출
-        if config.LLM_TRIGGER_SCORE <= score <= config.SCORE_WARNING:
+        if need_agent:
             # CostGuard: 예산/서킷/캐시/감소수익 체크
             should_call, reason, cached_action = self.cost_guard.pre_check(signal)
 
