@@ -387,11 +387,17 @@ class GridController:
             return {}
 
     def get_pending_orders(self) -> dict:
-        """미체결 주문을 매수/매도로 분류해서 반환."""
+        """그리드봇 서브 주문을 매수/매도로 분류해서 반환."""
+        if not self.bot_id:
+            return {"buy": [], "sell": []}
         try:
             resp = self._get(
-                "/api/v5/trade/orders-pending",
-                params={"instId": SYMBOL, "ordType": "limit"}
+                "/api/v5/tradingBot/grid/sub-orders",
+                params={
+                    "algoId": self.bot_id,
+                    "algoOrdType": "grid",
+                    "type": "live",
+                }
             )
             orders = resp.get("data", [])
             if not isinstance(orders, list):
@@ -413,12 +419,11 @@ class GridController:
                 elif side == "sell":
                     sells.append(entry)
 
-            # 가격순 정렬: 매도 내림차순, 매수 내림차순
             buys.sort(key=lambda x: x["price"], reverse=True)
             sells.sort(key=lambda x: x["price"], reverse=True)
             return {"buy": buys, "sell": sells}
         except Exception as e:
-            self._log(f"미체결 주문 조회 실패: {e}", level="ERROR")
+            self._log(f"그리드봇 서브 주문 조회 실패: {e}", level="ERROR")
             return {"buy": [], "sell": []}
 
     # ─── 그리드 중심 이동 & 노출 축소 ──────────────────────────
