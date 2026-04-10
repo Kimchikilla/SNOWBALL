@@ -320,6 +320,72 @@ class GridController:
             self._log(f"get_grid_pnl 실패: {e}", level="ERROR")
         return {}
 
+    def get_account_balance(self) -> dict:
+        """OKX 계좌 잔고 조회 (현물). 코인별 보유량 + USDT 잔고."""
+        try:
+            resp = self._get("/api/v5/account/balance")
+            if resp.get("code") != "0" or not resp.get("data"):
+                return {}
+
+            data = resp["data"][0] if isinstance(resp["data"], list) and resp["data"] else {}
+            details = data.get("details", [])
+            if not isinstance(details, list):
+                return {}
+
+            balances = {}
+            for d in details:
+                if not isinstance(d, dict):
+                    continue
+                ccy = d.get("ccy", "")
+                avail = self._safe_float(d.get("availBal"))
+                frozen = self._safe_float(d.get("frozenBal"))
+                total = self._safe_float(d.get("cashBal"))
+                eq_usd = self._safe_float(d.get("eqUsd"))
+                if total > 0 or avail > 0 or frozen > 0:
+                    balances[ccy] = {
+                        "available": avail,
+                        "frozen": frozen,
+                        "total": total,
+                        "eq_usd": eq_usd,
+                    }
+            return balances
+        except Exception as e:
+            self._log(f"계좌 잔고 조회 실패: {e}", level="ERROR")
+            return {}
+
+    def get_grid_positions(self) -> dict:
+        """그리드봇의 상세 포지션 정보 조회."""
+        if not self.bot_id:
+            return {}
+        try:
+            resp = self._get(
+                "/api/v5/tradingBot/grid/orders-algo-details",
+                params={"algoId": self.bot_id, "algoOrdType": "grid"}
+            )
+            if resp.get("code") != "0" or not resp.get("data"):
+                return {}
+            data = resp["data"][0] if isinstance(resp["data"], list) else {}
+            if not isinstance(data, dict):
+                return {}
+
+            return {
+                "state": data.get("state", "unknown"),
+                "investment": self._safe_float(data.get("investment")),
+                "grid_profit": self._safe_float(data.get("gridProfit")),
+                "float_profit": self._safe_float(data.get("floatProfit")),
+                "total_pnl": self._safe_float(data.get("totalPnl")),
+                "filled_count": data.get("filledCount", "0"),
+                "total_count": data.get("totalCount", "0"),
+                "annualized_rate": self._safe_float(data.get("annualizedRate")),
+                "base_sz": self._safe_float(data.get("baseSz")),  # 보유 코인 수량
+                "quote_sz": self._safe_float(data.get("quoteSz")),  # 투입 USDT
+                "cur_base_sz": self._safe_float(data.get("curBaseSz")),  # 현재 코인 보유
+                "cur_quote_sz": self._safe_float(data.get("curQuoteSz")),  # 현재 USDT 잔여
+            }
+        except Exception as e:
+            self._log(f"그리드 포지션 조회 실패: {e}", level="ERROR")
+            return {}
+
     # ─── 그리드 중심 이동 & 노출 축소 ──────────────────────────
 
     def shift_grid_center(self, new_center: float, current_price: float,

@@ -1392,13 +1392,34 @@ class GridAgent:
             grid_info = f"{gn}칸 ({gm})" if gn else "?"
             spacing_str = f" | 간격: {spacing:,.2f}" if spacing > 0 else ""
 
+            # OKX 실제 포지션 조회
+            pos = self.controller.get_grid_positions()
+            coin = config.SYMBOL.split("-")[0]  # ETH-USDT → ETH
+            position_lines = ""
+            if pos:
+                cur_coin = pos.get("cur_base_sz", 0)
+                cur_usdt = pos.get("cur_quote_sz", 0)
+                investment = pos.get("investment", 0)
+                filled = pos.get("filled_count", "0")
+                total_orders = pos.get("total_count", "0")
+                coin_value = cur_coin * price if cur_coin else 0
+                total_value = coin_value + cur_usdt
+
+                position_lines = (
+                    f"\n💼 포지션\n"
+                    f"  {coin}: {cur_coin:.6f} (~{coin_value:,.2f} USDT)\n"
+                    f"  USDT: {cur_usdt:,.2f}\n"
+                    f"  총 가치: {total_value:,.2f} / 투자금: {investment:,.2f}\n"
+                    f"  체결: {filled}/{total_orders}건"
+                )
+
             grid_section = (
                 f"\n{'─' * 28}\n"
                 f"🤖 그리드봇: {bot_status}\n"
                 f"📐 {gl:,.2f} [{bar}] {gu:,.2f}\n"
                 f"   위치: {position_pct:.0f}% ({pos_label})\n"
-                f"   {grid_info}{spacing_str}\n"
-                f"📦 보유: {self.holding_qty:.6f}{avg_buy_str}\n"
+                f"   {grid_info}{spacing_str}"
+                f"{position_lines}\n"
                 f"🔄 재시작: 당일 {self.grid_restart_count}회 | 수수료: {self.daily_fees:,.4f}"
             )
 
