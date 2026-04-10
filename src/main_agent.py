@@ -1343,10 +1343,13 @@ class GridAgent:
                 f"  {total_emoji} 합계: {total_pnl:+,.4f} USDT"
             )
 
-        # 그리드 범위 & 가격 위치
+        # 그리드봇 상태 & 포지션
         grid_section = ""
         gl = self.controller.current_lower
         gu = self.controller.current_upper
+        bot_id = self.controller.bot_id
+        paused = self.controller.paused
+
         if gl is not None and gu is not None and gu > gl:
             grid_range = gu - gl
             position_pct = (price - gl) / grid_range * 100
@@ -1368,11 +1371,27 @@ class GridAgent:
             else:
                 pos_label = "범위 내"
 
+            # 봇 상태
+            if not bot_id:
+                bot_status = "❌ 봇 없음"
+            elif paused:
+                bot_status = "⏸️ 일시정지"
+            else:
+                bot_status = "✅ 가동 중"
+
+            # 포지션 요약
+            avg_buy_str = ""
+            if self.holding_qty > 0 and self.holding_cost > 0:
+                avg_buy = self.holding_cost / self.holding_qty
+                avg_buy_str = f" (평균 {avg_buy:,.2f})"
+
             grid_section = (
                 f"\n{'─' * 28}\n"
-                f"📐 그리드 범위\n"
-                f"  {gl:,.2f} [{bar}] {gu:,.2f}\n"
-                f"  위치: {position_pct:.0f}% ({pos_label})"
+                f"🤖 그리드봇: {bot_status}\n"
+                f"📐 {gl:,.2f} [{bar}] {gu:,.2f}\n"
+                f"   위치: {position_pct:.0f}% ({pos_label})\n"
+                f"📦 보유: {self.holding_qty:.6f}{avg_buy_str}\n"
+                f"🔄 재시작: 당일 {self.grid_restart_count}회 | 수수료: {self.daily_fees:,.4f}"
             )
 
         msg = (
