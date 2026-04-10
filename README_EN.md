@@ -220,34 +220,52 @@ src/
 
 ## Estimated LLM API Cost
 
-Based on 2-minute loop interval (21,600 loops/month). Only called when risk score falls in the 55~80 range.
+Based on 2-minute loop (720/day, 21,600/month). Only called when risk score is 55~80.
+Includes fee context: **~1,000 input tokens / ~100 output tokens** per call.
 Multi-agent mode uses **5 calls per judgment** (4 agents + 1 coordinator).
 
-**Multi-Agent Mode (default)**
+**Multi-Agent Mode (default)** — Monthly Cost
 
-| Model | Stable (~5%) | Normal (~15%) | Volatile (~30%) |
-|-------|:----------:|:------------:|:--------------:|
-| Claude Haiku 4 | $0.88 | $2.64 | $5.28 |
-| GPT-4o Mini | $0.49 | $1.46 | $2.92 |
-| Grok 3 Mini | $0.49 | $1.46 | $2.92 |
-| Gemini 2.5 Flash | $0.41 | $1.22 | $2.43 |
-| GPT-4o | $8.10 | $24.30 | $48.60 |
-| **Claude Sonnet 4** (default) | **$10.53** | **$31.59** | **$63.18** |
+| Model | Per Judgment | Stable (~5%) | Normal (~15%) | Volatile (~30%) |
+|-------|:-----------:|:----------:|:------------:|:--------------:|
+| Gemini 2.0 Flash | $0.0005 | $0.54 | $1.62 | $3.24 |
+| GPT-4o Mini | $0.0010 | $1.08 | $3.24 | $6.48 |
+| Grok 3 Mini | $0.0018 | $1.94 | $5.83 | $11.66 |
+| Gemini 2.5 Flash | $0.0025 | $2.61 | $7.83 | $15.66 |
+| Claude Haiku 4 | $0.0075 | $8.10 | $24.30 | $48.60 |
+| GPT-4.1 | $0.0140 | $15.12 | $45.36 | $90.72 |
+| GPT-4o | $0.0175 | $18.90 | $56.70 | $113.40 |
+| Gemini 2.5 Pro | $0.0113 | $12.15 | $36.45 | $72.90 |
+| **Claude Sonnet 4** | **$0.0225** | **$24.30** | **$72.90** | **$145.80** |
+| Grok 3 | $0.0225 | $24.30 | $72.90 | $145.80 |
+| Claude Opus 4 | $0.1125 | $121.50 | $364.50 | $729.00 |
 
-**Single LLM Mode** (`MULTI_AGENT_MODE=false`)
+**Single LLM Mode** (`MULTI_AGENT_MODE=false`) — Monthly Cost
 
-| Model | Stable (~5%) | Normal (~15%) | Volatile (~30%) |
-|-------|:----------:|:------------:|:--------------:|
-| Claude Haiku 4 | $0.18 | $0.53 | $1.06 |
-| GPT-4o Mini | $0.10 | $0.29 | $0.58 |
-| Grok 3 Mini | $0.10 | $0.29 | $0.58 |
-| Gemini 2.5 Flash | $0.08 | $0.24 | $0.49 |
-| GPT-4o | $1.62 | $4.86 | $9.72 |
-| **Claude Sonnet 4** (default) | **$2.11** | **$6.32** | **$12.64** |
+| Model | Per Call | Stable (~5%) | Normal (~15%) | Volatile (~30%) |
+|-------|:-------:|:----------:|:------------:|:--------------:|
+| Gemini 2.0 Flash | $0.0001 | $0.11 | $0.32 | $0.65 |
+| GPT-4o Mini | $0.0002 | $0.22 | $0.65 | $1.30 |
+| Grok 3 Mini | $0.0004 | $0.39 | $1.17 | $2.33 |
+| Gemini 2.5 Flash | $0.0005 | $0.52 | $1.56 | $3.13 |
+| Claude Haiku 4 | $0.0015 | $1.62 | $4.86 | $9.72 |
+| GPT-4.1 | $0.0028 | $3.02 | $9.07 | $18.14 |
+| GPT-4o | $0.0035 | $3.78 | $11.34 | $22.68 |
+| Gemini 2.5 Pro | $0.0023 | $2.43 | $7.29 | $14.58 |
+| **Claude Sonnet 4** | **$0.0045** | **$4.86** | **$14.58** | **$29.16** |
+| Grok 3 | $0.0045 | $4.86 | $14.58 | $29.16 |
+| Claude Opus 4 | $0.0225 | $24.30 | $72.90 | $145.80 |
 
-> Multi-agent + budget: **Haiku 4** / **GPT-4o Mini** / **Grok 3 Mini** / **Gemini 2.5 Flash** (under $3/mo).
-> Multi-agent + quality: **Sonnet 4** (~$32/mo normal market).
-> Cost saving: set `MULTI_AGENT_MODE=false` for single LLM mode.
+> 🏆 **Budget picks** (multi-agent, volatile market):
+> - **Gemini 2.0 Flash**: $3.24/mo — cheapest
+> - **GPT-4o Mini**: $6.48/mo — best value
+> - **Grok 3 Mini**: $11.66/mo
+>
+> 🧠 **Quality picks**:
+> - **Claude Sonnet 4**: $72.90/mo (normal market)
+> - **GPT-4.1**: $45.36/mo — balanced cost/quality
+>
+> 💰 **Ultra savings**: `MULTI_AGENT_MODE=false` + Gemini 2.0 Flash = **$0.65/mo** even in volatile markets
 
 ### CostGuard System
 
