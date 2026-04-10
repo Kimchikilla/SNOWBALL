@@ -140,10 +140,14 @@ class CircuitBreaker:
         self.state = self.CLOSED
 
     def record_failure(self):
-        """실패 기록 → 임계값 초과 시 OPEN으로 전환."""
+        """실패 기록 → HALF_OPEN이면 즉시 OPEN, 아니면 임계값 초과 시 OPEN."""
         self.failure_count += 1
         self.last_failure_time = time.time()
-        if self.failure_count >= self.failure_threshold:
+        if self.state == self.HALF:
+            # HALF_OPEN에서 실패 → 즉시 다시 OPEN
+            self.state = self.OPEN
+            self.total_trips += 1
+        elif self.failure_count >= self.failure_threshold:
             self.state = self.OPEN
             self.total_trips += 1
 

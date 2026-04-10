@@ -240,6 +240,14 @@ class GridAgent:
         self.daily_sells:  int   = 0
         self.daily_buy_vol:  float = 0.0
         self.daily_sell_vol: float = 0.0
+        self.daily_buy_cost: float = 0.0   # 당일 매수 총 비용 (USDT)
+        self.daily_sell_revenue: float = 0.0  # 당일 매도 총 수익 (USDT)
+        self.daily_fees:     float = 0.0   # 당일 수수료 합계
+        # 포지션 추적 (매수 평균가 기반 손익 계산)
+        self.holding_qty:    float = 0.0   # 보유 수량
+        self.holding_cost:   float = 0.0   # 보유분 총 매수 비용 (USDT)
+        self.realized_pnl:   float = 0.0   # 누적 실현 손익
+        self.daily_realized: float = 0.0   # 당일 실현 손익
         # 일일 리포트 발송 여부
         self._report_sent_date: Optional[str] = None
 
@@ -410,7 +418,7 @@ class GridAgent:
         print(f"{CYAN}{'═' * 60}{RESET}")
 
         # 1. 데이터 수집
-        print(f"\n{DIM}[1/9]{RESET} {BOLD}데이터 수집{RESET} ─ OKX API 호출 중...")
+        print(f"\n{DIM}[1/10]{RESET} {BOLD}데이터 수집{RESET} ─ OKX API 호출 중...")
         try:
             candles = self.fetcher.get_candles()
             price   = self.fetcher.get_current_price()
@@ -427,7 +435,7 @@ class GridAgent:
         print(f"  {GREEN}✓{RESET} 현재가: {BOLD}{price:,.0f} USDT{RESET} | 캔들: {len(candles)}개")
 
         # 2. 리스크 분석
-        print(f"\n{DIM}[2/9]{RESET} {BOLD}리스크 분석{RESET} ─ ATR / RSI / BB / Volume / EMA / ADX")
+        print(f"\n{DIM}[2/10]{RESET} {BOLD}리스크 분석{RESET} ─ ATR / RSI / BB / Volume / EMA / ADX")
         try:
             signal = self.analyzer.analyze(candles)
         except Exception as e:
@@ -458,7 +466,7 @@ class GridAgent:
         print(f"  └────────────────────────────────────────────┘")
 
         # 3. 손절 체크
-        print(f"\n{DIM}[3/9]{RESET} {BOLD}손절 조건 체크{RESET} ─ 진입가 대비 {config.MAX_LOSS_PERCENT}% 이상 손실?")
+        print(f"\n{DIM}[3/10]{RESET} {BOLD}손절 조건 체크{RESET} ─ 진입가 대비 {config.MAX_LOSS_PERCENT}% 이상 손실?")
         try:
             if self._check_stop_loss(price):
                 print(f"  {RED}{BOLD}✗ 손절 조건 도달! 긴급 청산 실행{RESET}")
@@ -475,15 +483,26 @@ class GridAgent:
             print(f"  {GREEN}✓{RESET} 정상 (진입가 미설정)")
 
         # 4. 체결 감시
-        print(f"\n{DIM}[4/9]{RESET} {BOLD}체결 내역 감시{RESET} ─ 신규 매수/매도 확인")
+        print(f"\n{DIM}[4/10]{RESET} {BOLD}체결 내역 감시{RESET} ─ 신규 매수/매도 확인")
         try:
             self._check_fills(price)
-            print(f"  {GREEN}✓{RESET} 체결 확인 완료 (당일 매수={self.daily_buys} 매도={self.daily_sells})")
+            # 미실현 손익 계산
+            unrealized = 0.0
+            if self.holding_qty > 0 and price:
+                avg_buy = self.holding_cost / self.holding_qty
+                unrealized = (price - avg_buy) * self.holding_qty
+            total_day = self.daily_realized + unrealized
+            pnl_c = GREEN if total_day >= 0 else RED
+            print(f"  {GREEN}✓{RESET} 매수={self.daily_buys} 매도={self.daily_sells} | "
+                  f"보유={self.holding_qty:.6f} | "
+                  f"실현={self.daily_realized:+,.4f} | "
+                  f"미실현={unrealized:+,.4f} | "
+                  f"{pnl_c}합계={total_day:+,.4f}{RESET}")
         except Exception as e:
             print(f"  {RED}✗ 감시 실패: {e}{RESET}")
 
         # 5. 의사결정
-        print(f"\n{DIM}[5/9]{RESET} {BOLD}의사결정{RESET} ─ 추세 판단 → 리스크 스코어 → 에이전트 합의")
+        print(f"\n{DIM}[5/10]{RESET} {BOLD}의사결정{RESET} ─ 추세 판단 → 리스크 스코어 → 에이전트 합의")
         action = "MAINTAIN"
         try:
             action = self._decide_action(signal, price)
@@ -498,7 +517,7 @@ class GridAgent:
         print(f"  {BOLD}→ 결정: {ac}{action}{RESET}")
 
         # 6. 액션 실행
-        print(f"\n{DIM}[6/9]{RESET} {BOLD}액션 실행{RESET} ─ {ac}{action}{RESET}")
+        print(f"\n{DIM}[6/10]{RESET} {BOLD}액션 실행{RESET} ─ {ac}{action}{RESET}")
         try:
             self._execute(action, signal, price)
             print(f"  {GREEN}✓{RESET} 실행 완료")
@@ -506,7 +525,7 @@ class GridAgent:
             print(f"  {RED}✗ 실행 실패: {e}{RESET}")
 
         # 7. 일일 리포트
-        print(f"\n{DIM}[7/9]{RESET} {BOLD}일일 리포트 체크{RESET} ─ {config.DAILY_REPORT_HOUR}시 발송")
+        print(f"\n{DIM}[7/10]{RESET} {BOLD}일일 리포트 체크{RESET} ─ {config.DAILY_REPORT_HOUR}시 발송")
         try:
             self._check_daily_report(price)
             sent = "발송됨" if self._report_sent_date == datetime.now().strftime("%Y-%m-%d") else "미발송"
@@ -515,7 +534,7 @@ class GridAgent:
             print(f"  {RED}✗ 실패: {e}{RESET}")
 
         # 8. 상태 변화 알림
-        print(f"\n{DIM}[8/9]{RESET} {BOLD}상태 변화 감지{RESET} ─ {self.prev_state} → {signal.state}")
+        print(f"\n{DIM}[8/10]{RESET} {BOLD}상태 변화 감지{RESET} ─ {self.prev_state} → {signal.state}")
         try:
             if signal.state != self.prev_state:
                 if signal.state in config.NOTIFY_ON_STATES:
@@ -785,26 +804,59 @@ class GridAgent:
                 self._log(f"체결 데이터 파싱 오류: {e} | data={f}", level="ERROR")
                 continue
 
+            cost = px * sz  # 이 체결의 USDT 금액
+            self.daily_fees += abs(fee)
+
             if side == "buy":
                 emoji = "🟢"
                 label = "매수"
                 self.daily_buys += 1
                 self.daily_buy_vol += sz
+                self.daily_buy_cost += cost
+                # 포지션 추적: 매수 → 보유량/비용 증가
+                self.holding_qty += sz
+                self.holding_cost += cost
+                avg_price = self.holding_cost / self.holding_qty if self.holding_qty > 0 else px
+                pnl_line = f"평균 매수가: {avg_price:,.2f} USDT\n보유: {self.holding_qty:.6f}"
             else:
                 emoji = "🔴"
                 label = "매도"
                 self.daily_sells += 1
                 self.daily_sell_vol += sz
+                self.daily_sell_revenue += cost
+                # 포지션 추적: 매도 → 실현 손익 계산
+                if self.holding_qty > 0:
+                    avg_buy = self.holding_cost / self.holding_qty
+                    profit = (px - avg_buy) * sz - abs(fee)
+                    self.realized_pnl += profit
+                    self.daily_realized += profit
+                    # 보유량/비용 차감
+                    sell_ratio = min(sz / self.holding_qty, 1.0)
+                    self.holding_cost -= self.holding_cost * sell_ratio
+                    self.holding_qty = max(self.holding_qty - sz, 0.0)
+                    profit_emoji = "💰" if profit >= 0 else "💸"
+                    pnl_line = (
+                        f"{profit_emoji} 실현 손익: {profit:+,.4f} USDT\n"
+                        f"누적 실현: {self.realized_pnl:+,.4f} USDT\n"
+                        f"잔여 보유: {self.holding_qty:.6f}"
+                    )
+                else:
+                    pnl_line = "보유: 0 (포지션 없음)"
 
             msg = (
                 f"{emoji} {label} 체결 | {config.SYMBOL}\n"
+                f"{'─' * 24}\n"
                 f"가격: {px:,.2f} USDT\n"
-                f"수량: {sz}\n"
-                f"수수료: {fee:.6f}\n"
-                f"현재가: {current_price:,.0f}"
+                f"수량: {sz:.6f}\n"
+                f"금액: {cost:,.2f} USDT\n"
+                f"수수료: {abs(fee):.6f}\n"
+                f"{'─' * 24}\n"
+                f"{pnl_line}\n"
+                f"{'─' * 24}\n"
+                f"현재가: {current_price:,.0f} USDT"
             )
             self.notifier.send(msg)
-            self._log(f"{emoji} {label} 체결 | 가격={px:,.2f} | 수량={sz}")
+            self._log(f"{emoji} {label} 체결 | 가격={px:,.2f} | 수량={sz} | 금액={cost:,.2f}")
 
     # ─── 일일 리포트 ─────────────────────────────────────
 
@@ -822,12 +874,8 @@ class GridAgent:
             if now.hour < config.DAILY_REPORT_HOUR:
                 return
 
-            # 날짜가 바뀌었으면 당일 카운터 리셋
-            if self._report_sent_date and self._report_sent_date != today:
-                self.daily_buys = 0
-                self.daily_sells = 0
-                self.daily_buy_vol = 0.0
-                self.daily_sell_vol = 0.0
+            # 날짜가 바뀌었는지 체크 (리포트 발송 후 리셋)
+            is_new_day = self._report_sent_date and self._report_sent_date != today
 
             # PnL 조회
             pnl_available = True
@@ -875,6 +923,17 @@ class GridAgent:
             else:
                 self._log("📊 일일 리포트 발송 (PnL 조회 실패, 간소화 리포트)")
             self._report_sent_date = today
+
+            # 리포트 발송 후 날짜가 바뀌었으면 카운터 리셋
+            if is_new_day:
+                self.daily_buys = 0
+                self.daily_sells = 0
+                self.daily_buy_vol = 0.0
+                self.daily_sell_vol = 0.0
+                self.daily_buy_cost = 0.0
+                self.daily_sell_revenue = 0.0
+                self.daily_fees = 0.0
+                self.daily_realized = 0.0
         except Exception as e:
             self._log(f"일일 리포트 생성 실패: {e}", level="ERROR")
 
@@ -900,6 +959,31 @@ class GridAgent:
             loss_pct = (price - self.entry_price) / self.entry_price * 100
             loss_str = f"\n진입가 대비: {loss_pct:+.2f}%"
 
+        # 체결 기반 손익 섹션
+        fill_section = ""
+        if self.daily_buys > 0 or self.daily_sells > 0:
+            # 미실현 손익 (보유분 평가)
+            unrealized = 0.0
+            if self.holding_qty > 0 and price:
+                avg_buy = self.holding_cost / self.holding_qty
+                unrealized = (price - avg_buy) * self.holding_qty
+            unrealized_emoji = "📈" if unrealized >= 0 else "📉"
+            total_pnl = self.daily_realized + unrealized
+            total_emoji = "💰" if total_pnl >= 0 else "💸"
+
+            fill_section = (
+                f"\n{'─' * 28}\n"
+                f"📋 당일 체결\n"
+                f"  매수: {self.daily_buys}건 / {self.daily_buy_cost:,.2f} USDT\n"
+                f"  매도: {self.daily_sells}건 / {self.daily_sell_revenue:,.2f} USDT\n"
+                f"  수수료: {self.daily_fees:,.4f} USDT\n"
+                f"  보유: {self.holding_qty:.6f}\n"
+                f"{'─' * 28}\n"
+                f"  실현 손익: {self.daily_realized:+,.4f} USDT\n"
+                f"  {unrealized_emoji} 미실현: {unrealized:+,.4f} USDT\n"
+                f"  {total_emoji} 합계: {total_pnl:+,.4f} USDT"
+            )
+
         msg = (
             f"{emoji} TICK #{self.loop_count} | {config.SYMBOL}\n"
             f"{'─' * 28}\n"
@@ -908,7 +992,8 @@ class GridAgent:
             f"현재가: {price:,.2f} USDT\n"
             f"액션: {action}"
             f"{pnl_str}"
-            f"{loss_str}\n"
+            f"{loss_str}"
+            f"{fill_section}\n"
             f"{'─' * 28}\n"
             f"ATR={signal.atr_current:.1f} | RSI={signal.rsi:.1f} | "
             f"BB={signal.bb_width:.2f}% | Vol={signal.volume_ratio:.1f}x"
