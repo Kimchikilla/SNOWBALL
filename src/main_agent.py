@@ -1405,13 +1405,18 @@ class GridAgent:
                 coin_value = cur_coin * price if cur_coin else 0
                 total_value = coin_value + cur_usdt
                 pnl_pct = ((total_value - investment) / investment * 100) if investment > 0 else 0
+                pnl_emoji = "🟢" if pnl_pct >= 0 else "🔴"
 
                 position_lines = (
                     f"\n💼 그리드봇 포지션\n"
-                    f"  {coin}: {cur_coin:.6f} (~{coin_value:,.2f} USDT)\n"
-                    f"  USDT: {cur_usdt:,.2f}\n"
-                    f"  총 가치: {total_value:,.2f} / 투자금: {investment:,.2f} ({pnl_pct:+.2f}%)\n"
-                    f"  체결: {filled}/{total_orders}건"
+                    f"  통화    보유량       평가액\n"
+                    f"  {coin:<6}{cur_coin:<13.6f}{coin_value:>10,.0f} USDT\n"
+                    f"  {'USDT':<6}{cur_usdt:<13,.2f}{cur_usdt:>10,.0f} USDT\n"
+                    f"  ─────────────────────────\n"
+                    f"  합계               {total_value:>10,.0f} USDT\n"
+                    f"  투자금             {investment:>10,.0f} USDT\n"
+                    f"  {pnl_emoji} 수익률            {pnl_pct:>+9.2f}%\n"
+                    f"  체결 {filled}/{total_orders}건"
                 )
 
             # OKX 계좌 전체 잔고
@@ -1428,21 +1433,26 @@ class GridAgent:
                     total_eq += eq_usd
                     if ccy == coin:
                         rows.append(
-                            f"  {ccy}: {total_bal:.4f} × {price:,.0f} = ~{eq_usd:,.0f} USDT"
+                            f"  {ccy:<6}{total_bal:<13.4f}{eq_usd:>10,.0f} USDT"
                         )
                     elif ccy == "USDT":
-                        rows.append(f"  {ccy}: {total_bal:,.2f}")
+                        rows.append(
+                            f"  {ccy:<6}{total_bal:<13,.2f}{total_bal:>10,.0f} USDT"
+                        )
                     else:
-                        if eq_usd >= 1:  # $1 이상만 표시
-                            rows.append(f"  {ccy}: {total_bal:.4f} (~{eq_usd:,.0f} USDT)")
+                        if eq_usd >= 1:
+                            rows.append(
+                                f"  {ccy:<6}{total_bal:<13.4f}{eq_usd:>10,.0f} USDT"
+                            )
 
                 if rows:
                     balance_lines = (
                         f"\n{'─' * 28}\n"
                         f"🏦 계좌 잔고\n"
+                        f"  통화    보유량       평가액\n"
                         + "\n".join(rows)
-                        + f"\n  ────\n"
-                        f"  총 평가: ~{total_eq:,.0f} USDT"
+                        + f"\n  ─────────────────────────\n"
+                        f"  총 평가           {total_eq:>10,.0f} USDT"
                     )
 
             grid_section = (
