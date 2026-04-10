@@ -32,7 +32,6 @@ class GridController:
 
     def __init__(self):
         self.bot_id: Optional[str] = None      # 실행 중인 봇 ID
-        self.paused: bool = False
         self.current_lower: Optional[float] = None   # 현재 그리드 하한
         self.current_upper: Optional[float] = None   # 현재 그리드 상한
         self.current_grid_num: Optional[int] = None  # 현재 그리드 개수
@@ -107,12 +106,6 @@ class GridController:
                     f"     손익: 그리드={grid_profit:+,.2f} 평가={float_pnl:+,.2f} 합계={total_pnl:+,.2f}"
                 )
 
-                # 일시정지 상태인지 체크
-                if state == "stopping" or state == "stopped":
-                    self.paused = True
-                else:
-                    self.paused = False
-
                 return {
                     "code": "0",
                     "status": "synced",
@@ -171,7 +164,6 @@ class GridController:
                     self.bot_id = data[0].get("algoId")
                 else:
                     self._log(f"그리드봇 시작 응답 구조 이상: {resp}", level="ERROR")
-                self.paused = False
                 self.current_lower = float(lower)
                 self.current_upper = float(upper)
                 self.current_grid_num = int(count)
@@ -203,44 +195,6 @@ class GridController:
 
         self.stop_grid(sell_remaining=False)
         return self.start_grid(lower=new_lower, upper=new_upper, count=GRID_COUNT)
-
-    def pause_new_orders(self) -> dict:
-        """
-        그리드봇을 실제로 중지합니다 (보유 코인 유지, 매도 안 함).
-        OKX 그리드봇은 일시정지 API가 없으므로 봇을 중지하고
-        resume 시 동일 설정으로 재시작합니다.
-        """
-        if self.paused:
-            return {"status": "already_paused"}
-
-        # 현재 설정 저장 (재개용)
-        self._paused_lower = self.current_lower
-        self._paused_upper = self.current_upper
-        self._paused_grid_num = self.current_grid_num
-        self._paused_mode = self.current_mode
-
-        # 봇 중지 (stopType=1: 보유분 유지)
-        resp = self.stop_grid(sell_remaining=False)
-        self.paused = True
-        self._log("그리드봇 중지 (PAUSE) | 보유 포지션 유지, 신규 주문 없음")
-        return resp
-
-    def resume_grid(self) -> dict:
-        """PAUSE 상태에서 동일 설정으로 그리드봇 재시작."""
-        if not self.paused:
-            return {"status": "not_paused"}
-
-        lower = getattr(self, "_paused_lower", None) or GRID_LOWER
-        upper = getattr(self, "_paused_upper", None) or GRID_UPPER
-        count = getattr(self, "_paused_grid_num", None) or GRID_COUNT
-
-        self._log(f"그리드봇 재시작 (RESUME) | 범위={lower}~{upper} | {count}칸")
-        resp = self.start_grid(lower=lower, upper=upper, count=count)
-        if resp.get("code") == "0":
-            self.paused = False
-        else:
-            self._log("그리드봇 재시작 실패 — PAUSE 상태 유지", level="ERROR")
-        return resp
 
     def emergency_stop(self) -> dict:
         """
@@ -580,18 +534,6 @@ class GridController:
         self.stop_grid(sell_remaining=False)
         resp = self.start_grid(lower=new_lower, upper=new_upper, count=GRID_COUNT)
         return resp
-
-    def reduce_exposure(self) -> dict:
-        """
-        하락장 방어: 그리드봇을 중지하여 추가 매수를 방지합니다.
-        OKX 그리드봇은 매수만 선택 취소가 불가능하므로 PAUSE와 동일하게
-        봇을 중지(보유분 유지)합니다.
-        """
-        try:
-            return self.pause_new_orders()
-        except Exception as e:
-            self._log(f"reduce_exposure 실패: {e}", level="ERROR")
-            return {"status": "error", "msg": str(e)}
 
     # ─── 주문 관리 ───────────────────────────────────────────
 

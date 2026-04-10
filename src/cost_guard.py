@@ -305,15 +305,9 @@ class RecoveryCascade:
     @staticmethod
     def rule_based_fallback(risk_score: float, trend: str, trend_strength: float) -> str:
         """Level 1: 룰 베이스 폴백 (API 호출 없음)."""
-        if trend == "BEARISH" and trend_strength >= 50:
-            return "PAUSE"
-        if trend == "BEARISH" and trend_strength >= 30:
-            return "REDUCE"
-        if risk_score >= 80:
+        if risk_score >= 90:
             return "STOP"
         if risk_score >= 60:
-            return "PAUSE"
-        if risk_score >= 30:
             return "WIDEN"
         return "MAINTAIN"
 
