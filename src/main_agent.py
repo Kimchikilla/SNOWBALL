@@ -1404,14 +1404,46 @@ class GridAgent:
                 total_orders = pos.get("total_count", "0")
                 coin_value = cur_coin * price if cur_coin else 0
                 total_value = coin_value + cur_usdt
+                pnl_pct = ((total_value - investment) / investment * 100) if investment > 0 else 0
 
                 position_lines = (
-                    f"\n💼 포지션\n"
+                    f"\n💼 그리드봇 포지션\n"
                     f"  {coin}: {cur_coin:.6f} (~{coin_value:,.2f} USDT)\n"
                     f"  USDT: {cur_usdt:,.2f}\n"
-                    f"  총 가치: {total_value:,.2f} / 투자금: {investment:,.2f}\n"
+                    f"  총 가치: {total_value:,.2f} / 투자금: {investment:,.2f} ({pnl_pct:+.2f}%)\n"
                     f"  체결: {filled}/{total_orders}건"
                 )
+
+            # OKX 계좌 전체 잔고
+            balances = self.controller.get_account_balance()
+            balance_lines = ""
+            if balances:
+                total_eq = 0.0
+                rows = []
+                for ccy, bal in sorted(balances.items()):
+                    total_bal = bal.get("total", 0)
+                    eq_usd = bal.get("eq_usd", 0)
+                    if total_bal <= 0:
+                        continue
+                    total_eq += eq_usd
+                    if ccy == coin:
+                        rows.append(
+                            f"  {ccy}: {total_bal:.4f} × {price:,.0f} = ~{eq_usd:,.0f} USDT"
+                        )
+                    elif ccy == "USDT":
+                        rows.append(f"  {ccy}: {total_bal:,.2f}")
+                    else:
+                        if eq_usd >= 1:  # $1 이상만 표시
+                            rows.append(f"  {ccy}: {total_bal:.4f} (~{eq_usd:,.0f} USDT)")
+
+                if rows:
+                    balance_lines = (
+                        f"\n{'─' * 28}\n"
+                        f"🏦 계좌 잔고\n"
+                        + "\n".join(rows)
+                        + f"\n  ────\n"
+                        f"  총 평가: ~{total_eq:,.0f} USDT"
+                    )
 
             grid_section = (
                 f"\n{'─' * 28}\n"
@@ -1419,7 +1451,8 @@ class GridAgent:
                 f"📐 {gl:,.2f} [{bar}] {gu:,.2f}\n"
                 f"   위치: {position_pct:.0f}% ({pos_label})\n"
                 f"   {grid_info}{spacing_str}"
-                f"{position_lines}\n"
+                f"{position_lines}"
+                f"{balance_lines}\n"
                 f"🔄 재시작: 당일 {self.grid_restart_count}회 | 수수료: {self.daily_fees:,.4f}"
             )
 
