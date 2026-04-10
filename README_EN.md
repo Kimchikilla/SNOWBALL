@@ -208,52 +208,47 @@ src/
 
 ## Estimated LLM API Cost
 
-Based on 2-minute loop (720/day, 21,600/month). Only called when risk score is 55~80.
-Includes fee context: **~1,000 input tokens / ~100 output tokens** per call.
-Multi-agent mode uses **5 calls per judgment** (4 agents + 1 coordinator).
+**Event-driven architecture** — 5-min monitoring (288/day, 8,640/month).
+No events = **$0 LLM cost**. ~1,000 input / ~100 output tokens per call.
 
-**Multi-Agent Mode (default)** — Monthly Cost
+Event trigger rates: stable ~2%, normal ~8%, volatile ~20%
 
-| Model | Per Judgment | Stable (~5%) | Normal (~15%) | Volatile (~30%) |
+**Multi-Agent Mode (default)** — Monthly Cost (5 calls/judgment)
+
+| Model | Per Judgment | Stable (~2%) | Normal (~8%) | Volatile (~20%) |
 |-------|:-----------:|:----------:|:------------:|:--------------:|
-| Gemini 2.0 Flash | $0.0005 | $0.54 | $1.62 | $3.24 |
-| GPT-4o Mini | $0.0010 | $1.08 | $3.24 | $6.48 |
-| Grok 3 Mini | $0.0018 | $1.94 | $5.83 | $11.66 |
-| Gemini 2.5 Flash | $0.0025 | $2.61 | $7.83 | $15.66 |
-| Claude Haiku 4 | $0.0075 | $8.10 | $24.30 | $48.60 |
-| GPT-4.1 | $0.0140 | $15.12 | $45.36 | $90.72 |
-| GPT-4o | $0.0175 | $18.90 | $56.70 | $113.40 |
-| Gemini 2.5 Pro | $0.0113 | $12.15 | $36.45 | $72.90 |
-| **Claude Sonnet 4** | **$0.0225** | **$24.30** | **$72.90** | **$145.80** |
-| Grok 3 | $0.0225 | $24.30 | $72.90 | $145.80 |
-| Claude Opus 4 | $0.1125 | $121.50 | $364.50 | $729.00 |
+| Gemini 2.0 Flash | $0.0005 | $0.09 | $0.35 | $0.86 |
+| GPT-4o Mini | $0.0010 | $0.17 | $0.69 | $1.73 |
+| Grok 3 Mini | $0.0018 | $0.31 | $1.24 | $3.11 |
+| Gemini 2.5 Flash | $0.0025 | $0.43 | $1.73 | $4.32 |
+| Claude Haiku 4 | $0.0075 | $1.30 | $5.18 | $12.96 |
+| GPT-4.1 | $0.0140 | $2.42 | $9.68 | $24.19 |
+| GPT-4o | $0.0175 | $3.02 | $12.10 | $30.24 |
+| Gemini 2.5 Pro | $0.0113 | $1.95 | $7.78 | $19.45 |
+| **Claude Sonnet 4** | **$0.0225** | **$3.89** | **$15.55** | **$38.88** |
+| Grok 3 | $0.0225 | $3.89 | $15.55 | $38.88 |
+| Claude Opus 4 | $0.1125 | $19.44 | $77.76 | $194.40 |
 
 **Single LLM Mode** (`MULTI_AGENT_MODE=false`) — Monthly Cost
 
-| Model | Per Call | Stable (~5%) | Normal (~15%) | Volatile (~30%) |
+| Model | Per Call | Stable (~2%) | Normal (~8%) | Volatile (~20%) |
 |-------|:-------:|:----------:|:------------:|:--------------:|
-| Gemini 2.0 Flash | $0.0001 | $0.11 | $0.32 | $0.65 |
-| GPT-4o Mini | $0.0002 | $0.22 | $0.65 | $1.30 |
-| Grok 3 Mini | $0.0004 | $0.39 | $1.17 | $2.33 |
-| Gemini 2.5 Flash | $0.0005 | $0.52 | $1.56 | $3.13 |
-| Claude Haiku 4 | $0.0015 | $1.62 | $4.86 | $9.72 |
-| GPT-4.1 | $0.0028 | $3.02 | $9.07 | $18.14 |
-| GPT-4o | $0.0035 | $3.78 | $11.34 | $22.68 |
-| Gemini 2.5 Pro | $0.0023 | $2.43 | $7.29 | $14.58 |
-| **Claude Sonnet 4** | **$0.0045** | **$4.86** | **$14.58** | **$29.16** |
-| Grok 3 | $0.0045 | $4.86 | $14.58 | $29.16 |
-| Claude Opus 4 | $0.0225 | $24.30 | $72.90 | $145.80 |
+| Gemini 2.0 Flash | $0.0001 | $0.02 | $0.07 | $0.17 |
+| GPT-4o Mini | $0.0002 | $0.03 | $0.14 | $0.35 |
+| Grok 3 Mini | $0.0004 | $0.06 | $0.25 | $0.62 |
+| Gemini 2.5 Flash | $0.0005 | $0.09 | $0.35 | $0.86 |
+| Claude Haiku 4 | $0.0015 | $0.26 | $1.04 | $2.59 |
+| GPT-4.1 | $0.0028 | $0.48 | $1.94 | $4.84 |
+| GPT-4o | $0.0035 | $0.60 | $2.42 | $6.05 |
+| Gemini 2.5 Pro | $0.0023 | $0.39 | $1.56 | $3.89 |
+| **Claude Sonnet 4** | **$0.0045** | **$0.78** | **$3.11** | **$7.78** |
+| Grok 3 | $0.0045 | $0.78 | $3.11 | $7.78 |
+| Claude Opus 4 | $0.0225 | $3.89 | $15.55 | $38.88 |
 
-> 🏆 **Budget picks** (multi-agent, volatile market):
-> - **Gemini 2.0 Flash**: $3.24/mo — cheapest
-> - **GPT-4o Mini**: $6.48/mo — best value
-> - **Grok 3 Mini**: $11.66/mo
->
-> 🧠 **Quality picks**:
-> - **Claude Sonnet 4**: $72.90/mo (normal market)
-> - **GPT-4.1**: $45.36/mo — balanced cost/quality
->
-> 💰 **Ultra savings**: `MULTI_AGENT_MODE=false` + Gemini 2.0 Flash = **$0.65/mo** even in volatile markets
+> 🏆 **Budget** (multi-agent, volatile): Gemini 2.0 Flash $0.86/mo, GPT-4o Mini $1.73/mo
+> 🧠 **Quality**: Claude Sonnet 4 $15.55/mo (normal), GPT-4.1 $9.68/mo
+> 💰 **Ultra savings**: Single + Gemini 2.0 Flash = **$0.17/mo** even in volatile markets
+> 📉 **~75% cost reduction** vs previous always-on architecture
 
 ### CostGuard System
 
