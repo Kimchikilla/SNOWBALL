@@ -1400,7 +1400,10 @@ class GridAgent:
             balances = self.controller.get_account_balance()
 
             # 포지션 테이블 (계좌 잔고 기준)
-            now_ts = datetime.now().strftime("%-m/%d %p %-I:%M").replace("AM", "오전").replace("PM", "오후")
+            now_dt = datetime.now()
+            ampm = "오후" if now_dt.hour >= 12 else "오전"
+            hr = now_dt.hour % 12 or 12
+            now_ts = f"{now_dt.month}/{now_dt.day} {ampm} {hr}:{now_dt.minute:02d}"
             portfolio_lines = ""
             if balances:
                 total_eq = 0.0
