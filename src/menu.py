@@ -6,10 +6,48 @@ menu.py
 import os
 import sys
 import json
+import unicodedata
 
 import httpx
 import questionary
 from questionary import Choice, Style
+
+
+# ─── 한글 더블 위드 대응 유틸 ────────────────────────────────
+
+def _vw(s: str) -> int:
+    """문자열의 터미널 표시 폭 계산 (CJK/이모지 = 2칸)."""
+    w = 0
+    for ch in s:
+        if unicodedata.east_asian_width(ch) in ("W", "F"):
+            w += 2
+        else:
+            w += 1
+    return w
+
+
+def _vpad(s: str, width: int, align: str = "left") -> str:
+    """터미널 표시 폭 기준으로 패딩."""
+    pad = max(0, width - _vw(s))
+    if align == "right":
+        return " " * pad + s
+    return s + " " * pad
+
+
+def _vtrunc(s: str, width: int) -> str:
+    """터미널 표시 폭 기준으로 자르기."""
+    w = 0
+    for i, ch in enumerate(s):
+        cw = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        if w + cw > width - 3:
+            return s[:i] + "..."
+        w += cw
+    return s
+
+
+def _box_line(content: str, inner: int = 46) -> str:
+    """박스 라인 생성 (내부 폭 고정)."""
+    return f"  │ {_vpad(content, inner)}│"
 
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 
@@ -28,8 +66,8 @@ STYLE = Style([
 
 BANNER = """
 ╔══════════════════════════════════════════════════╗
-║            ❄️  Snowball Agent  ❄️                ║
-║         OKX Adaptive Grid Trading Agent          ║
+║           Snowball Agent                         ║
+║       OKX Adaptive Grid Trading Agent            ║
 ╚══════════════════════════════════════════════════╝
 """
 
@@ -37,7 +75,7 @@ BANNER = """
 # ─── 유틸 ────────────────────────────────────────────────
 
 def clear():
-    os.system("cls" if os.name == "nt" else "clear")
+    print("\033[2J\033[H", end="", flush=True)
 
 
 def print_disclaimer():
@@ -660,21 +698,23 @@ def _auto_grid_settings(env: dict, symbol: str, budget: float) -> dict:
     spread = (upper - lower) / count
     grid_pct = grid_budget / budget * 100
 
+    W = 46
     print()
-    print("  ┌──────────────────────────────────────────────┐")
-    print(f"  │ 🤖 AI 추천 설정                               │")
-    print("  ├──────────────────────────────────────────────┤")
-    print(f"  │ 그리드 예산  : {grid_budget:>12,.0f} USDT ({grid_pct:.0f}%)     │")
-    print(f"  │ 예비 자금   : {reserve_budget:>12,.0f} USDT ({100-grid_pct:.0f}%)     │")
-    print("  ├──────────────────────────────────────────────┤")
-    print(f"  │ 하단 가격   : {lower:>15,.2f} USDT          │")
-    print(f"  │ 상단 가격   : {upper:>15,.2f} USDT          │")
-    print(f"  │ 그리드 개수  : {count:>15}개               │")
-    print(f"  │ 그리드 간격  : {spread:>15,.2f} USDT          │")
-    print(f"  │ 모드        : {mode:>15}                 │")
-    print("  ├──────────────────────────────────────────────┤")
-    print(f"  │ 사유: {reason:<40}│")
-    print("  └──────────────────────────────────────────────┘")
+    print(f"  ┌{'─' * W}┐")
+    print(_box_line("AI 추천 설정", W))
+    print(f"  ├{'─' * W}┤")
+    print(_box_line(f"그리드 예산 : {grid_budget:>12,.0f} USDT ({grid_pct:.0f}%)", W))
+    print(_box_line(f"예비 자금   : {reserve_budget:>12,.0f} USDT ({100-grid_pct:.0f}%)", W))
+    print(f"  ├{'─' * W}┤")
+    print(_box_line(f"하단 가격   : {lower:>15,.2f} USDT", W))
+    print(_box_line(f"상단 가격   : {upper:>15,.2f} USDT", W))
+    print(_box_line(f"그리드 개수 : {count:>15} 개", W))
+    print(_box_line(f"그리드 간격 : {spread:>15,.2f} USDT", W))
+    print(_box_line(f"모드        : {mode:>15}", W))
+    print(f"  ├{'─' * W}┤")
+    reason_trunc = _vtrunc(reason, W - 6) if _vw(reason) > W - 6 else reason
+    print(_box_line(f"사유: {reason_trunc}", W))
+    print(f"  └{'─' * W}┘")
     print()
 
     try:
@@ -911,12 +951,13 @@ def _detect_chat_id(token: str, existing_chat_id: str = None) -> str | None:
     except Exception:
         flush_offset = 0
 
+    BW = 52
     print()
-    print("  ┌──────────────────────────────────────────────┐")
-    print("  │  📱 텔레그램에서 봇에게 아무 메시지나 보내주세요  │")
-    print("  │     (예: /start 또는 아무 텍스트)              │")
-    print("  │     60초 안에 보내주시면 자동으로 감지합니다.    │")
-    print("  └──────────────────────────────────────────────┘")
+    print(f"  ┌{'─' * BW}┐")
+    print(_box_line("텔레그램에서 봇에게 아무 메시지나 보내주세요", BW))
+    print(_box_line("(예: /start 또는 아무 텍스트)", BW))
+    print(_box_line("60초 안에 보내주시면 자동으로 감지합니다.", BW))
+    print(f"  └{'─' * BW}┘")
     print()
     print("  ⏳ 메시지 대기 중...", end="", flush=True)
 
@@ -1128,29 +1169,37 @@ def view_settings():
         pause()
         return
 
-    mode = "Demo (모의거래)" if env.get("DEMO_MODE", "true") == "true" else "⚠ Live (실거래)"
+    mode = "Demo" if env.get("DEMO_MODE", "true") == "true" else "Live"
+    W = 44
+    L = 12  # 라벨 폭
+    V = W - L - 2  # 값 폭 (": " 포함)
 
-    print("  ┌──────────────────────────────────────────┐")
-    print(f"  │ {'OKX API':<13}: {mask(env.get('OKX_API_KEY', '')):<26}│")
-    print(f"  │ {'거래 모드':<11}: {mode:<26}│")
-    print("  ├──────────────────────────────────────────┤")
-    print(f"  │ {'심볼':<12}: {env.get('SYMBOL', '-'):<26}│")
-    print(f"  │ {'총 예산':<11}: {env.get('TOTAL_BUDGET', '-') + ' USDT':<26}│")
-    print(f"  │ {'그리드 범위':<10}: {env.get('GRID_LOWER', '-') + ' ~ ' + env.get('GRID_UPPER', '-'):<26}│")
-    print(f"  │ {'그리드 개수':<10}: {env.get('GRID_COUNT', '-'):<26}│")
-    print(f"  │ {'그리드 모드':<10}: {env.get('GRID_MODE', '-'):<26}│")
-    print("  ├──────────────────────────────────────────┤")
+    def _row(label, value):
+        val_str = str(value)
+        if _vw(val_str) > V:
+            val_str = _vtrunc(val_str, V)
+        return _box_line(f"{_vpad(label, L)}: {_vpad(val_str, V)}", W)
+
+    print(f"  ┌{'─' * W}┐")
+    print(_row("OKX API", mask(env.get("OKX_API_KEY", ""))))
+    print(_row("거래 모드", mode))
+    print(f"  ├{'─' * W}┤")
+    print(_row("심볼", env.get("SYMBOL", "-")))
+    print(_row("총 예산", env.get("TOTAL_BUDGET", "-") + " USDT"))
+    grid_range = env.get("GRID_LOWER", "-") + " ~ " + env.get("GRID_UPPER", "-")
+    print(_row("그리드 범위", grid_range))
+    print(_row("그리드 개수", env.get("GRID_COUNT", "-")))
+    print(_row("그리드 모드", env.get("GRID_MODE", "-")))
+    print(f"  ├{'─' * W}┤")
     llm_info = f"{env.get('LLM_PROVIDER', '-')} / {env.get('LLM_MODEL', '-')}"
-    print(f"  │ {'LLM':<13}: {llm_info:<26}│")
-    print(f"  │ {'LLM Key':<13}: {mask(env.get('LLM_API_KEY', '')):<26}│")
-    print("  ├──────────────────────────────────────────┤")
-    tg = "설정됨" if env.get("TELEGRAM_TOKEN") else "미설정"
-    loop = env.get("LOOP_INTERVAL_SEC", "120")
-    loss = env.get("MAX_LOSS_PERCENT", "15")
-    print(f"  │ {'텔레그램':<11}: {tg:<26}│")
-    print(f"  │ {'루프 간격':<11}: {loop + '초':<26}│")
-    print(f"  │ {'손절 기준':<11}: {loss + '%':<26}│")
-    print("  └──────────────────────────────────────────┘")
+    print(_row("LLM", llm_info))
+    print(_row("LLM Key", mask(env.get("LLM_API_KEY", ""))))
+    print(f"  ├{'─' * W}┤")
+    tg = "ON" if env.get("TELEGRAM_TOKEN") else "OFF"
+    print(_row("텔레그램", tg))
+    print(_row("루프 간격", env.get("LOOP_INTERVAL_SEC", "120") + "s"))
+    print(_row("손절 기준", env.get("MAX_LOSS_PERCENT", "15") + "%"))
+    print(f"  └{'─' * W}┘")
     pause()
 
 
