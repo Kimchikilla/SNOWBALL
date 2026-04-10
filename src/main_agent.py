@@ -81,7 +81,8 @@ class LLMJudge:
         except Exception as e:
             print(f"[LLMJudge] 초기화 실패: {e} — LLM 판단 비활성화")
 
-    def judge(self, signal: MarketSignal, current_price: float) -> str:
+    def judge(self, signal: MarketSignal, current_price: float,
+              fee_context: str = "") -> str:
         """
         Returns: "MAINTAIN" | "WIDEN" | "PAUSE" | "STOP"
         """
@@ -102,13 +103,15 @@ ATR (현재/평균): {signal.atr_current:.1f} / {signal.atr_avg:.1f}
 RSI: {signal.rsi:.1f}
 볼린저밴드 폭: {signal.bb_width:.1f}%
 거래량 배율: {signal.volume_ratio:.1f}x
-
+{fee_context}
 === 판단 요청 ===
 다음 4가지 중 하나로만 답하세요 (이유 한 줄 포함):
 - MAINTAIN: 현재 그리드를 그대로 유지
-- WIDEN: 그리드 간격을 넓혀서 재시작
+- WIDEN: 그리드 간격을 넓혀서 재시작 (수수료 발생!)
 - PAUSE: 신규 주문 중단, 기존 유지
 - STOP: 전체 청산
+
+수수료가 예상 수익보다 크면 MAINTAIN을 우선하세요.
 
 형식: ACTION|이유
 예시: WIDEN|ATR이 평균의 2.8배로 단기 급등 가능성 높음
@@ -250,6 +253,10 @@ class GridAgent:
         self.daily_realized: float = 0.0   # 당일 실현 손익
         # 일일 리포트 발송 여부
         self._report_sent_date: Optional[str] = None
+        # 그리드 재시작 추적 (수수료 가드용)
+        self.grid_restart_times: list = []   # 재시작 시각 기록
+        self.grid_restart_count: int = 0     # 당일 재시작 횟수
+        self.total_fees_paid: float = 0.0    # 누적 수수료
 
     @staticmethod
     def _print_disclaimer():
@@ -600,23 +607,54 @@ class GridAgent:
                 self._log(f"💰 CostGuard 스킵: {reason} → {cached_action}")
                 return cached_action
 
+            # 수수료 컨텍스트 생성
+            fee_ctx = self._build_fee_context(price)
+
             # 실제 LLM 호출
             try:
                 if config.MULTI_AGENT_MODE and self.multi_agent.available:
-                    result = self.multi_agent.judge_with_detail(signal, price)
+                    result = self.multi_agent.judge_with_detail(
+                        signal, price, fee_context=fee_ctx
+                    )
                     self._log(
                         f"멀티 에이전트 합의: {result.final_action} "
                         f"(동의율={result.agreement_rate:.0f}%, score={score})"
                     )
                     self.notifier.send(format_consensus_for_telegram(result))
-                    # 성공 기록 (멀티 에이전트 = 5회 호출)
                     self.cost_guard.post_success(signal, result.final_action, num_calls=5)
+                    # 수수료 가드: 재시작 액션이면 체크
+                    allowed, skip_reason = self._check_restart_allowed(
+                        result.final_action, price
+                    )
+                    if not allowed:
+                        self._log(f"🛡️ 수수료 가드: {skip_reason} → MAINTAIN 유지")
+                        self.notifier.send(
+                            f"🛡️ 그리드 조정 스킵\n"
+                            f"에이전트 판단: {result.final_action}\n"
+                            f"사유: {skip_reason}\n"
+                            f"→ MAINTAIN 유지"
+                        )
+                        return "MAINTAIN"
                     return result.final_action
                 else:
-                    llm_action = self.llm_judge.judge(signal, price)
+                    llm_action = self.llm_judge.judge(
+                        signal, price, fee_context=fee_ctx
+                    )
                     self._log(f"LLM 단독 판단: {llm_action} (score={score})")
-                    # 성공 기록 (단일 LLM = 1회 호출)
                     self.cost_guard.post_success(signal, llm_action, num_calls=1)
+                    # 수수료 가드
+                    allowed, skip_reason = self._check_restart_allowed(
+                        llm_action, price
+                    )
+                    if not allowed:
+                        self._log(f"🛡️ 수수료 가드: {skip_reason} → MAINTAIN 유지")
+                        self.notifier.send(
+                            f"🛡️ 그리드 조정 스킵\n"
+                            f"에이전트 판단: {llm_action}\n"
+                            f"사유: {skip_reason}\n"
+                            f"→ MAINTAIN 유지"
+                        )
+                        return "MAINTAIN"
                     return llm_action
             except Exception as e:
                 self._log(f"LLM 호출 실패: {e} → 에러 복구 캐스케이드", level="ERROR")
@@ -693,63 +731,109 @@ class GridAgent:
                 self.controller.ensure_grid_running()
 
         elif action == "WIDEN":
+            self._record_grid_restart()
+            old_lower = self.controller.current_lower
+            old_upper = self.controller.current_upper
             self.controller.widen_grid(
                 atr_value=signal.atr_current,
                 current_price=price
+            )
+            new_lower = self.controller.current_lower
+            new_upper = self.controller.current_upper
+            est_fee = self.holding_qty * price * 0.002 if self.holding_qty > 0 else 0
+            self.notifier.send(
+                f"🔄 그리드 확대 (WIDEN) | {config.SYMBOL}\n"
+                f"{'─' * 28}\n"
+                f"이전 범위: {old_lower:,.2f} ~ {old_upper:,.2f}\n"
+                f"새 범위  : {new_lower:,.2f} ~ {new_upper:,.2f}\n"
+                f"현재가   : {price:,.0f} USDT\n"
+                f"ATR      : {signal.atr_current:.1f}\n"
+                f"{'─' * 28}\n"
+                f"예상 수수료: ~{est_fee:,.4f} USDT\n"
+                f"당일 누적 수수료: {self.daily_fees:,.4f} USDT\n"
+                f"당일 재시작: {self.grid_restart_count}회"
             )
 
         elif action == "PAUSE":
             if not self.controller.paused:
                 self.controller.pause_new_orders()
+                self.notifier.send(
+                    f"⏸️ 신규 주문 중단 (PAUSE) | {config.SYMBOL}\n"
+                    f"리스크 점수: {signal.risk_score:.1f}/100\n"
+                    f"현재가: {price:,.0f} USDT\n"
+                    f"사유: {signal.reason}"
+                )
 
         elif action == "REDUCE":
             try:
                 self.controller.reduce_exposure()
                 trend_strength = getattr(signal, "trend_strength", 0.0)
                 self.notifier.send(
-                    f"⚠️ 매수 주문 축소 | {config.SYMBOL}\n"
+                    f"⚠️ 매수 주문 축소 (REDUCE) | {config.SYMBOL}\n"
+                    f"{'─' * 28}\n"
                     f"추세: BEARISH (ADX={trend_strength:.1f})\n"
-                    f"현재가: {price:,.0f}"
+                    f"현재가: {price:,.0f} USDT\n"
+                    f"리스크 점수: {signal.risk_score:.1f}/100"
                 )
             except Exception as e:
                 self._log(f"REDUCE 실행 실패: {e}", level="ERROR")
 
         elif action == "SHIFT_UP":
+            self._record_grid_restart()
             try:
                 grid_lower = getattr(self.controller, "current_lower", None)
                 grid_upper = getattr(self.controller, "current_upper", None)
                 if grid_lower is not None and grid_upper is not None:
+                    old_lower, old_upper = grid_lower, grid_upper
                     grid_range = grid_upper - grid_lower
                     offset = grid_range * 0.1
                     new_center = price + offset
                     self.controller.shift_grid_center(new_center, price)
                     self.last_shift_time = datetime.now()
                     trend_strength = getattr(signal, "trend_strength", 0.0)
+                    est_fee = self.holding_qty * price * 0.002 if self.holding_qty > 0 else 0
                     self.notifier.send(
                         f"📈 그리드 상향 시프트 | {config.SYMBOL}\n"
+                        f"{'─' * 28}\n"
+                        f"이전 범위: {old_lower:,.2f} ~ {old_upper:,.2f}\n"
+                        f"새 범위  : {self.controller.current_lower:,.2f} ~ {self.controller.current_upper:,.2f}\n"
+                        f"새 중심  : {new_center:,.0f} USDT\n"
+                        f"현재가   : {price:,.0f} USDT\n"
                         f"추세: BULLISH (ADX={trend_strength:.1f})\n"
-                        f"새 중심: {new_center:,.0f}\n"
-                        f"현재가: {price:,.0f}"
+                        f"{'─' * 28}\n"
+                        f"예상 수수료: ~{est_fee:,.4f} USDT\n"
+                        f"당일 누적 수수료: {self.daily_fees:,.4f} USDT\n"
+                        f"당일 재시작: {self.grid_restart_count}회"
                     )
             except Exception as e:
                 self._log(f"SHIFT_UP 실행 실패: {e}", level="ERROR")
 
         elif action == "SHIFT_DOWN":
+            self._record_grid_restart()
             try:
                 grid_lower = getattr(self.controller, "current_lower", None)
                 grid_upper = getattr(self.controller, "current_upper", None)
                 if grid_lower is not None and grid_upper is not None:
+                    old_lower, old_upper = grid_lower, grid_upper
                     grid_range = grid_upper - grid_lower
                     offset = grid_range * 0.1
                     new_center = price - offset
                     self.controller.shift_grid_center(new_center, price)
                     self.last_shift_time = datetime.now()
                     trend_strength = getattr(signal, "trend_strength", 0.0)
+                    est_fee = self.holding_qty * price * 0.002 if self.holding_qty > 0 else 0
                     self.notifier.send(
                         f"📉 그리드 하향 시프트 | {config.SYMBOL}\n"
+                        f"{'─' * 28}\n"
+                        f"이전 범위: {old_lower:,.2f} ~ {old_upper:,.2f}\n"
+                        f"새 범위  : {self.controller.current_lower:,.2f} ~ {self.controller.current_upper:,.2f}\n"
+                        f"새 중심  : {new_center:,.0f} USDT\n"
+                        f"현재가   : {price:,.0f} USDT\n"
                         f"추세: BEARISH (ADX={trend_strength:.1f})\n"
-                        f"새 중심: {new_center:,.0f}\n"
-                        f"현재가: {price:,.0f}"
+                        f"{'─' * 28}\n"
+                        f"예상 수수료: ~{est_fee:,.4f} USDT\n"
+                        f"당일 누적 수수료: {self.daily_fees:,.4f} USDT\n"
+                        f"당일 재시작: {self.grid_restart_count}회"
                     )
             except Exception as e:
                 self._log(f"SHIFT_DOWN 실행 실패: {e}", level="ERROR")
@@ -806,6 +890,7 @@ class GridAgent:
 
             cost = px * sz  # 이 체결의 USDT 금액
             self.daily_fees += abs(fee)
+            self.total_fees_paid += abs(fee)
 
             if side == "buy":
                 emoji = "🟢"
@@ -843,17 +928,23 @@ class GridAgent:
                 else:
                     pnl_line = "보유: 0 (포지션 없음)"
 
+            diff = current_price - px
+            diff_pct = diff / px * 100 if px > 0 else 0
+            diff_emoji = "🔺" if diff > 0 else "🔻" if diff < 0 else "▪️"
+
             msg = (
                 f"{emoji} {label} 체결 | {config.SYMBOL}\n"
-                f"{'─' * 24}\n"
-                f"가격: {px:,.2f} USDT\n"
-                f"수량: {sz:.6f}\n"
-                f"금액: {cost:,.2f} USDT\n"
-                f"수수료: {abs(fee):.6f}\n"
-                f"{'─' * 24}\n"
+                f"{'━' * 28}\n"
+                f"💵 {label} 가격 : {px:,.2f} USDT\n"
+                f"📦 수량      : {sz:.6f}\n"
+                f"💲 금액      : {cost:,.2f} USDT\n"
+                f"🏷️ 수수료    : {abs(fee):.6f}\n"
+                f"{'━' * 28}\n"
                 f"{pnl_line}\n"
-                f"{'─' * 24}\n"
-                f"현재가: {current_price:,.0f} USDT"
+                f"{'━' * 28}\n"
+                f"📊 현재 {config.SYMBOL} 시세\n"
+                f"   {current_price:,.2f} USDT\n"
+                f"   {diff_emoji} 체결가 대비 {diff:+,.2f} ({diff_pct:+.2f}%)"
             )
             self.notifier.send(msg)
             self._log(f"{emoji} {label} 체결 | 가격={px:,.2f} | 수량={sz} | 금액={cost:,.2f}")
@@ -937,6 +1028,68 @@ class GridAgent:
         except Exception as e:
             self._log(f"일일 리포트 생성 실패: {e}", level="ERROR")
 
+    # ─── 수수료 컨텍스트 ─────────────────────────────────────
+
+    def _build_fee_context(self, current_price: float) -> str:
+        """에이전트에게 제공할 수수료/손익 컨텍스트."""
+        # 미실현 손익
+        unrealized = 0.0
+        avg_buy = 0.0
+        if self.holding_qty > 0:
+            avg_buy = self.holding_cost / self.holding_qty
+            unrealized = (current_price - avg_buy) * self.holding_qty
+
+        # 1시간 내 그리드 재시작 횟수
+        now = datetime.now()
+        recent_restarts = [t for t in self.grid_restart_times
+                           if (now - t).total_seconds() < 3600]
+
+        # 예상 재시작 수수료 (보유분 매도 + 새 주문 체결 = 약 0.2%)
+        est_restart_fee = self.holding_qty * current_price * 0.002 if self.holding_qty > 0 else 0
+
+        return (
+            f"\n=== 수수료/손익 현황 ===\n"
+            f"당일 누적 수수료: {self.daily_fees:,.4f} USDT\n"
+            f"총 누적 수수료: {self.total_fees_paid:,.4f} USDT\n"
+            f"당일 실현 손익: {self.daily_realized:+,.4f} USDT\n"
+            f"미실현 손익: {unrealized:+,.4f} USDT\n"
+            f"보유 수량: {self.holding_qty:.6f} (평균 매수가: {avg_buy:,.2f})\n"
+            f"당일 그리드 재시작: {self.grid_restart_count}회\n"
+            f"최근 1시간 재시작: {len(recent_restarts)}회\n"
+            f"그리드 재시작 시 예상 수수료: ~{est_restart_fee:,.2f} USDT\n"
+            f"\n⚠ WIDEN/SHIFT는 그리드 재시작(중지→재시작)이며 수수료가 발생합니다.\n"
+            f"수수료가 예상 수익보다 크면 MAINTAIN을 권고하세요."
+        )
+
+    def _check_restart_allowed(self, action: str, current_price: float) -> tuple[bool, str]:
+        """그리드 재시작이 수수료 대비 합리적인지 체크."""
+        if action not in ("WIDEN", "SHIFT_UP", "SHIFT_DOWN"):
+            return True, ""
+
+        now = datetime.now()
+        recent = [t for t in self.grid_restart_times
+                  if (now - t).total_seconds() < 3600]
+
+        # 하드 리밋: 1시간 내 최대 2회
+        if len(recent) >= 2:
+            return False, f"1시간 내 재시작 {len(recent)}회 도달 (최대 2회)"
+
+        # 수수료 가드: 예상 수수료 > 최근 실현 수익이면 차단
+        if self.holding_qty > 0:
+            est_fee = self.holding_qty * current_price * 0.002
+            if self.daily_realized > 0 and est_fee > self.daily_realized * 0.5:
+                return False, (
+                    f"수수료 비효율: 예상 수수료 ~{est_fee:,.4f} > "
+                    f"실현 수익의 50% ({self.daily_realized * 0.5:,.4f})"
+                )
+
+        return True, ""
+
+    def _record_grid_restart(self):
+        """그리드 재시작 기록."""
+        self.grid_restart_times.append(datetime.now())
+        self.grid_restart_count += 1
+
     # ─── 틱 리포트 텔레그램 발송 ─────────────────────────────
 
     def _send_tick_report(self, signal, price: float, action: str,
@@ -986,10 +1139,11 @@ class GridAgent:
 
         msg = (
             f"{emoji} TICK #{self.loop_count} | {config.SYMBOL}\n"
-            f"{'─' * 28}\n"
+            f"{'━' * 28}\n"
+            f"💰 {config.SYMBOL} : {price:,.2f} USDT\n"
+            f"{'━' * 28}\n"
             f"상태: {signal.state} | 점수: {signal.risk_score:.1f}/100\n"
             f"추세: {trend} (ADX={trend_strength:.1f})\n"
-            f"현재가: {price:,.2f} USDT\n"
             f"액션: {action}"
             f"{pnl_str}"
             f"{loss_str}"
