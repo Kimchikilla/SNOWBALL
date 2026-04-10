@@ -29,8 +29,15 @@ class Notifier:
     """텔레그램 알림 발송"""
 
     def send(self, message: str):
+        # 항상 터미널에도 출력
+        ts = datetime.now().strftime("%H:%M:%S")
+        DIM = "\033[2m"
+        RESET = "\033[0m"
+        print(f"{DIM}[{ts}] [TG →]{RESET}")
+        for line in message.split("\n"):
+            print(f"  {DIM}{line}{RESET}")
+
         if not config.TELEGRAM_TOKEN or not config.TELEGRAM_CHAT_ID:
-            print(f"[Notifier] (Telegram 미설정) {message}")
             return
         url = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/sendMessage"
         try:
@@ -1428,22 +1435,30 @@ class GridAgent:
                                 f"  {ccy:<8}{total_bal:>10.4f}     {'-':>10}  ~{eq_usd:>10,.0f} USDT"
                             )
 
-                # 원금 계산 (투자금 + 봇 외 USDT)
-                investment = pos.get("investment", 0) if pos else 0
-                pnl_val = total_eq - investment if investment > 0 else 0
-                pnl_pct = (pnl_val / investment * 100) if investment > 0 else 0
-                pnl_emoji = "✅" if pnl_val >= 0 else "🔻"
+                # 그리드봇 손익 (OKX API 기준)
+                bot_pnl_lines = ""
+                if pos:
+                    investment = pos.get("investment", 0)
+                    grid_profit = pos.get("grid_profit", 0)
+                    float_profit = pos.get("float_profit", 0)
+                    total_pnl_bot = pos.get("total_pnl", 0)
+                    pnl_pct = (total_pnl_bot / investment * 100) if investment > 0 else 0
+                    pnl_emoji = "✅" if total_pnl_bot >= 0 else "🔻"
+                    bot_pnl_lines = (
+                        f"\n"
+                        f"  그리드봇 투자금: {investment:,.0f} USDT\n"
+                        f"  그리드 수익: {grid_profit:+,.2f} USDT\n"
+                        f"  평가 손익:   {float_profit:+,.2f} USDT\n"
+                        f"  봇 총손익:   {total_pnl_bot:+,.2f} USDT ({pnl_pct:+.2f}%) {pnl_emoji}"
+                    )
 
                 portfolio_lines = (
                     f"\n{'─' * 28}\n"
                     f"현재 포지션 ({now_ts})\n"
                     f"  {'통화':<8}{'보유량':>10}  {'현재가':>10}  {'평가액':>14}\n"
                     + "\n".join(rows)
-                    + f"\n  {'총 평가':<8}{'':>10}  {'':>10}  ~{total_eq:>10,.0f} USDT\n"
-                    f"\n"
-                    f"  원금:   ~{investment:,.0f} USDT\n"
-                    f"  현재:   ~{total_eq:,.0f} USDT\n"
-                    f"  손익:   {pnl_val:+,.0f} USDT ({pnl_pct:+.2f}%) {pnl_emoji}"
+                    + f"\n  {'총 평가':<8}{'':>10}  {'':>10}  ~{total_eq:>10,.0f} USDT"
+                    + bot_pnl_lines
                 )
 
             # 그리드봇 체결 정보
@@ -1542,11 +1557,11 @@ class GridAgent:
                 f"   위치: {position_pct:.0f}% ({pos_label})\n"
                 f"   {grid_info}{spacing_str}"
                 f"{fill_info}"
-                f"{grid_visual}"
                 f"{portfolio_lines}\n"
                 f"🔄 재시작: 당일 {self.grid_restart_count}회 | 수수료: {self.daily_fees:,.4f}"
             )
 
+        # 메시지 1: 틱 요약
         msg = (
             f"{emoji} TICK #{self.loop_count} | {config.SYMBOL}\n"
             f"{'━' * 28}\n"
@@ -1563,8 +1578,11 @@ class GridAgent:
             f"ATR={signal.atr_current:.1f} | RSI={signal.rsi:.1f} | "
             f"BB={signal.bb_width:.2f}% | Vol={signal.volume_ratio:.1f}x"
         )
-
         self.notifier.send(msg)
+
+        # 메시지 2: 그리드 주문 래더 (별도 메시지)
+        if grid_visual:
+            self.notifier.send(grid_visual)
 
         # EMERGENCY: 10초 간격으로 3회 반복 알림
         if signal.state == "EMERGENCY":
