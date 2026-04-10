@@ -427,73 +427,114 @@ class GridController:
             return {"buy": [], "sell": []}
 
     def get_today_fills(self) -> dict:
-        """당일 그리드봇 체결 내역 집계."""
+        """당일 그리드봇 체결 내역 집계.
+        왕복(round trip) = min(매수, 매도), 순수익 = 왕복 × (간격 × 수량) - 수수료.
+        """
+        empty = {"buy_count": 0, "sell_count": 0, "total_count": 0,
+                 "round_trips": 0, "gross_per_trip": 0, "fee_per_trip": 0,
+                 "net_per_trip": 0, "net_profit": 0, "total_fees": 0}
         if not self.bot_id:
-            return {"buy_count": 0, "sell_count": 0, "total_count": 0,
-                    "buy_amount": 0, "sell_amount": 0, "net_profit": 0, "fees": 0}
+            return empty
         try:
-            resp = self._get(
-                "/api/v5/tradingBot/grid/sub-orders",
-                params={
-                    "algoId": self.bot_id,
-                    "algoOrdType": "grid",
-                    "type": "filled",
-                }
-            )
-            orders = resp.get("data", [])
-            if not isinstance(orders, list):
-                return {"buy_count": 0, "sell_count": 0, "total_count": 0,
-                        "buy_amount": 0, "sell_amount": 0, "net_profit": 0, "fees": 0}
-
-            # 당일 00:00 UTC+9 기준 밀리초
-            import time as _time
+            # 당일 00:00 기준 밀리초
             now = datetime.now()
             today_start = datetime(now.year, now.month, now.day)
             today_ms = int(today_start.timestamp() * 1000)
 
+            # 페이지네이션으로 당일 체결 전부 수집 (최대 5페이지 = 500건)
+            orders = []
+            after = ""
+            for _ in range(5):
+                params = {
+                    "algoId": self.bot_id,
+                    "algoOrdType": "grid",
+                    "type": "filled",
+                }
+                if after:
+                    params["after"] = after
+                resp = self._get("/api/v5/tradingBot/grid/sub-orders", params)
+                page = resp.get("data", [])
+                if not isinstance(page, list) or not page:
+                    break
+                # 당일 이전 데이터 나오면 중단
+                oldest_time = int(page[-1].get("fillTime", page[-1].get("uTime", 0)))
+                orders.extend(page)
+                if oldest_time < today_ms:
+                    break
+                # 다음 페이지 커서
+                after = page[-1].get("ordId", "")
+                if not after:
+                    break
+
             buy_count = 0
             sell_count = 0
-            buy_amount = 0.0
-            sell_amount = 0.0
-            total_fees = 0.0
+            buy_fees_coin = 0.0   # 매수 수수료 (코인 단위)
+            sell_fees_usdt = 0.0  # 매도 수수료 (USDT 단위)
+            sizes = []
+            last_price = 0.0
 
             for o in orders:
                 if not isinstance(o, dict):
                     continue
                 fill_time = int(o.get("fillTime", o.get("uTime", 0)))
                 if fill_time < today_ms:
-                    continue  # 당일 이전 체결은 스킵
+                    continue
 
                 side = o.get("side", "")
                 px = self._safe_float(o.get("px"))
                 sz = self._safe_float(o.get("sz"))
                 fee = abs(self._safe_float(o.get("fee")))
-                amount = px * sz
+                sizes.append(sz)
+                if px > 0:
+                    last_price = px
 
                 if side == "buy":
                     buy_count += 1
-                    buy_amount += amount
+                    buy_fees_coin += fee  # ETH로 차감
                 elif side == "sell":
                     sell_count += 1
-                    sell_amount += amount
-                total_fees += fee
+                    sell_fees_usdt += fee  # USDT로 차감
 
-            # 순수익 = 매도액 - 매수액 - 수수료 (USDT 기준 근사)
-            net_profit = sell_amount - buy_amount - total_fees
+            # 매수 수수료를 현재가로 USDT 환산
+            buy_fees_usdt = buy_fees_coin * last_price if last_price > 0 else 0
+            total_fees = buy_fees_usdt + sell_fees_usdt
+
+            # 왕복 = 완성된 매수→매도 사이클
+            round_trips = min(buy_count, sell_count)
+
+            # 그리드 간격
+            spacing = 0.0
+            if (self.current_lower is not None and self.current_upper is not None
+                    and self.current_grid_num and self.current_grid_num > 0):
+                spacing = (self.current_upper - self.current_lower) / self.current_grid_num
+
+            # 평균 체결 수량
+            avg_sz = sum(sizes) / len(sizes) if sizes else 0
+
+            # 1회 왕복 수익
+            gross_per_trip = spacing * avg_sz
+            fee_per_trip = total_fees / round_trips if round_trips > 0 else 0
+            net_per_trip = gross_per_trip - fee_per_trip
+
+            # 총 순수익
+            net_profit = round_trips * net_per_trip
 
             return {
                 "buy_count": buy_count,
                 "sell_count": sell_count,
                 "total_count": buy_count + sell_count,
-                "buy_amount": buy_amount,
-                "sell_amount": sell_amount,
+                "round_trips": round_trips,
+                "avg_size": avg_sz,
+                "spacing": spacing,
+                "gross_per_trip": gross_per_trip,
+                "fee_per_trip": fee_per_trip,
+                "net_per_trip": net_per_trip,
                 "net_profit": net_profit,
-                "fees": total_fees,
+                "total_fees": total_fees,
             }
         except Exception as e:
             self._log(f"당일 체결 집계 실패: {e}", level="ERROR")
-            return {"buy_count": 0, "sell_count": 0, "total_count": 0,
-                    "buy_amount": 0, "sell_amount": 0, "net_profit": 0, "fees": 0}
+            return empty
 
     # ─── 그리드 중심 이동 & 노출 축소 ──────────────────────────
 

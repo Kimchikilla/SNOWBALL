@@ -1464,11 +1464,15 @@ class GridAgent:
             # 당일 체결 집계 (OKX API)
             fill_info = ""
             try:
-                today_fills = self.controller.get_today_fills()
-                bc = today_fills["buy_count"]
-                sc = today_fills["sell_count"]
-                tc = today_fills["total_count"]
-                net = today_fills["net_profit"]
+                tf = self.controller.get_today_fills()
+                bc = tf["buy_count"]
+                sc = tf["sell_count"]
+                rt = tf["round_trips"]
+                net = tf["net_profit"]
+                fees = tf["total_fees"]
+                gross = tf.get("gross_per_trip", 0)
+                fee_rt = tf.get("fee_per_trip", 0)
+                net_rt = tf.get("net_per_trip", 0)
                 net_emoji = "🔥" if net > 0 else "🧊" if net < 0 else ""
 
                 fill_info = (
@@ -1477,8 +1481,14 @@ class GridAgent:
                     f"  {'구분':<12}{'건수':>8}\n"
                     f"  {'매수':<12}{bc:>7}건\n"
                     f"  {'매도':<12}{sc:>7}건\n"
-                    f"  {'합계':<12}{tc:>7}건\n"
-                    f"  {'오늘 순수익':<12}~{net:+,.2f} USDT {net_emoji}"
+                    f"  {'왕복':<12}{rt:>7}회\n"
+                    f"  {'수수료':<12}~{fees:,.2f} USDT\n"
+                    f"  {'─' * 26}\n"
+                    f"  1회 차익: ~{gross:,.2f} USDT\n"
+                    f"  1회 수수료: ~{fee_rt:,.2f} USDT\n"
+                    f"  1회 순수익: ~{net_rt:,.2f} USDT\n"
+                    f"  {'─' * 26}\n"
+                    f"  오늘 순수익: ~{net:+,.2f} USDT {net_emoji}"
                 )
             except Exception:
                 pass
