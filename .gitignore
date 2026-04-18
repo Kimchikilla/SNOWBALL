@@ -13,6 +13,12 @@ build/
 # 로그
 *.log
 
+# 런타임 상태 파일 (이탈 타이머 / 일일 카운터 / 포지션)
+src/agent_state.json
+src/agent_state.json.tmp
+agent_state.json
+agent_state.json.tmp
+
 # IDE / Editor
 .idea/
 .vscode/

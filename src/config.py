@@ -84,6 +84,17 @@ VOLUME_SPIKE_MULTIPLIER = _env_float("VOLUME_SPIKE_MULTIPLIER", 5.0)
 # ─── 손절 조건 ─────────────────────────────────────────
 MAX_LOSS_PERCENT = _env_float("MAX_LOSS_PERCENT", 15.0)
 
+# ─── 그리드 이탈 대응 ──────────────────────────────────
+# 이탈 후 LLM에게 재배치 판단 요청까지 대기 (시간)
+BREAKOUT_WAIT_HOURS = _env_int("BREAKOUT_WAIT_HOURS", 6)
+# 이 시간 초과 시 LLM 판단 무시하고 강제 SHIFT (수수료 가드는 여전히 적용)
+BREAKOUT_HARD_TIMEOUT_HOURS = _env_int("BREAKOUT_HARD_TIMEOUT_HOURS", 48)
+
+# ─── 상태 저장 (재시작 시 이어받기) ─────────────────────
+# 이탈 타이머 / 일일 카운터 / 재시작 기록 / 포지션을 파일에 저장.
+# 빈 문자열이면 저장 비활성화. 경로가 상대경로면 src/ 기준.
+STATE_FILE = _env("STATE_FILE", "agent_state.json")
+
 # ─── 모니터링 주기 ─────────────────────────────────────
 LOOP_INTERVAL_SEC    = _env_int("LOOP_INTERVAL_SEC", 300)
 CANDLE_INTERVAL      = _env("CANDLE_INTERVAL", "1m")
