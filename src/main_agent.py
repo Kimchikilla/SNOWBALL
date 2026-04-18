@@ -5,6 +5,7 @@ OKX Adaptive Grid Agent 메인 루프.
 실행: python main_agent.py
 """
 
+import os
 import sys
 import time
 import json
@@ -119,11 +120,16 @@ RSI: {signal.rsi:.1f}
 - SHIFT_DOWN: 그리드를 아래로 이동 (수수료 발생!)
 - STOP: 전체 청산 (극단적 상황에서만)
 
-WIDEN/SHIFT는 그리드 재시작이며 수수료가 발생합니다.
-수수료가 예상 수익보다 크면 MAINTAIN을 우선하세요.
+=== 판단 가이드라인 ===
+- 컨텍스트에 `=== 그리드 이탈 상황 ===`이 있다면 이탈 기간을 최우선 고려:
+  * 이탈 24시간 미만: MAINTAIN 선호 (가격 복귀 대기)
+  * 이탈 24~48시간 + 추세 확인 (ADX≥20): WIDEN 또는 SHIFT 권고
+  * 이탈 48시간 이상: WIDEN 강력 권고 (복귀 가능성 낮음, 재배치 시급)
+- 수수료 가드: 예상 재시작 수수료가 실현 수익의 50%를 초과하면 MAINTAIN
+- 이탈 상황이 아니면 리스크 스코어와 추세 기반으로 판단
 
 형식: ACTION|이유
-예시: MAINTAIN|변동성 낮고 횡보 중, 수수료 대비 조정 불필요
+예시: WIDEN|이탈 52시간 초과, 추세 확인됨, 재배치 필요
 """
         try:
             raw = self._call(prompt)
@@ -270,7 +276,14 @@ class GridAgent:
         self.grid_breakout_time: Optional[datetime] = None  # 이탈 시작 시각
         self.grid_breakout_dir: Optional[str] = None        # "ABOVE" | "BELOW"
         self.grid_breakout_notified: bool = False            # 이탈 알림 발송 여부
-        self.BREAKOUT_WAIT_SEC: int = 6 * 3600               # 재배치 판단까지 대기 (6시간)
+        self.BREAKOUT_WAIT_SEC: int = config.BREAKOUT_WAIT_HOURS * 3600            # LLM 판단 요청까지 대기
+        self.BREAKOUT_HARD_TIMEOUT_SEC: int = config.BREAKOUT_HARD_TIMEOUT_HOURS * 3600  # 강제 SHIFT 한도
+
+        # 날짜 롤오버 감지용
+        self._current_date: str = datetime.now().strftime("%Y-%m-%d")
+
+        # 저장된 상태 복원 (파일 없으면 no-op)
+        self._load_state()
 
     @staticmethod
     def _print_disclaimer():
@@ -649,6 +662,10 @@ class GridAgent:
 
         # 매 틱 텔레그램 발송
         self._send_tick_report(signal, price, action, trend, trend_strength)
+
+        # 상태 저장 (재시작 시 이어받기)
+        self._save_state()
+
         print(f"{CYAN}{'─' * 60}{RESET}")
 
     # ─── 의사결정 ──────────────────────────────────────────
@@ -1102,6 +1119,149 @@ class GridAgent:
         self.grid_restart_times.append(datetime.now())
         self.grid_restart_count += 1
 
+    # ─── 상태 저장 / 복원 ──────────────────────────────────
+
+    @staticmethod
+    def _state_path() -> Optional[str]:
+        """설정된 상태 파일 경로. 빈 문자열이면 None."""
+        path = (config.STATE_FILE or "").strip()
+        if not path:
+            return None
+        if not os.path.isabs(path):
+            path = os.path.join(os.path.dirname(__file__), path)
+        return path
+
+    @staticmethod
+    def _dt_to_str(dt: Optional[datetime]) -> Optional[str]:
+        return dt.isoformat() if isinstance(dt, datetime) else None
+
+    @staticmethod
+    def _str_to_dt(s) -> Optional[datetime]:
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(s)
+        except (ValueError, TypeError):
+            return None
+
+    def _save_state(self):
+        """틱 종료 시 현재 상태를 파일에 저장. 실패해도 루프는 계속."""
+        path = self._state_path()
+        if not path:
+            return
+        try:
+            state = {
+                "saved_at": datetime.now().isoformat(),
+                "current_date": self._current_date,
+                # 이탈 타이머
+                "grid_breakout_time": self._dt_to_str(self.grid_breakout_time),
+                "grid_breakout_dir": self.grid_breakout_dir,
+                "grid_breakout_notified": self.grid_breakout_notified,
+                # 재시작 추적
+                "grid_restart_times": [
+                    self._dt_to_str(t) for t in self.grid_restart_times
+                ],
+                "grid_restart_count": self.grid_restart_count,
+                "total_fees_paid": self.total_fees_paid,
+                "last_shift_time": self._dt_to_str(self.last_shift_time),
+                # 당일 카운터
+                "daily_buys": self.daily_buys,
+                "daily_sells": self.daily_sells,
+                "daily_buy_vol": self.daily_buy_vol,
+                "daily_sell_vol": self.daily_sell_vol,
+                "daily_buy_cost": self.daily_buy_cost,
+                "daily_sell_revenue": self.daily_sell_revenue,
+                "daily_fees": self.daily_fees,
+                "daily_realized": self.daily_realized,
+                "report_sent_date": self._report_sent_date,
+                # 포지션 / 체결
+                "holding_qty": self.holding_qty,
+                "holding_cost": self.holding_cost,
+                "realized_pnl": self.realized_pnl,
+                "entry_price": self.entry_price,
+                "last_fill_id": self.last_fill_id,
+                # 메타
+                "symbol": config.SYMBOL,
+            }
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, path)
+        except Exception as e:
+            self._log(f"상태 저장 실패: {e}", level="ERROR")
+
+    def _load_state(self):
+        """시작 시 저장된 상태 복원. 날짜가 바뀌었으면 daily만 리셋."""
+        path = self._state_path()
+        if not path or not os.path.exists(path):
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                state = json.load(f)
+        except Exception as e:
+            self._log(f"상태 파일 읽기 실패: {e} → 초기 상태로 진행", level="ERROR")
+            return
+
+        # 심볼이 다르면 파일은 다른 봇 것. 무시.
+        saved_symbol = state.get("symbol")
+        if saved_symbol and saved_symbol != config.SYMBOL:
+            self._log(
+                f"저장된 심볼({saved_symbol})이 현재({config.SYMBOL})와 달라 상태 복원 건너뜀",
+                level="WARNING"
+            )
+            return
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        saved_date = state.get("current_date")
+        same_day = (saved_date == today)
+
+        # 항상 복원 (이탈 타이머 / 포지션 / 재시작 기록 / 누적 수수료)
+        self.grid_breakout_time = self._str_to_dt(state.get("grid_breakout_time"))
+        self.grid_breakout_dir = state.get("grid_breakout_dir")
+        self.grid_breakout_notified = bool(state.get("grid_breakout_notified", False))
+        self.grid_restart_times = [
+            dt for dt in (self._str_to_dt(s) for s in state.get("grid_restart_times", []))
+            if dt is not None
+        ]
+        self.total_fees_paid = float(state.get("total_fees_paid", 0.0))
+        self.last_shift_time = self._str_to_dt(state.get("last_shift_time"))
+        self.holding_qty = float(state.get("holding_qty", 0.0))
+        self.holding_cost = float(state.get("holding_cost", 0.0))
+        self.realized_pnl = float(state.get("realized_pnl", 0.0))
+        self.entry_price = state.get("entry_price")
+        self.last_fill_id = state.get("last_fill_id")
+
+        # 당일 카운터: 같은 날짜일 때만 복원
+        if same_day:
+            self.daily_buys = int(state.get("daily_buys", 0))
+            self.daily_sells = int(state.get("daily_sells", 0))
+            self.daily_buy_vol = float(state.get("daily_buy_vol", 0.0))
+            self.daily_sell_vol = float(state.get("daily_sell_vol", 0.0))
+            self.daily_buy_cost = float(state.get("daily_buy_cost", 0.0))
+            self.daily_sell_revenue = float(state.get("daily_sell_revenue", 0.0))
+            self.daily_fees = float(state.get("daily_fees", 0.0))
+            self.daily_realized = float(state.get("daily_realized", 0.0))
+            self.grid_restart_count = int(state.get("grid_restart_count", 0))
+            self._report_sent_date = state.get("report_sent_date")
+            self._current_date = saved_date
+        else:
+            # 날짜 바뀐 경우 daily_*는 0부터 시작 (__init__ 기본값 유지)
+            self._log(
+                f"저장된 날짜({saved_date}) ≠ 오늘({today}) → 일일 카운터는 초기화",
+                level="INFO"
+            )
+
+        breakout_info = ""
+        if self.grid_breakout_time:
+            elapsed_hr = (datetime.now() - self.grid_breakout_time).total_seconds() / 3600
+            breakout_info = (
+                f" | 이탈 타이머 복원: {self.grid_breakout_time.strftime('%m-%d %H:%M')} "
+                f"({self.grid_breakout_dir}, {elapsed_hr:.1f}h 경과)"
+            )
+        self._log(
+            f"✅ 상태 복원 완료 | 저장={state.get('saved_at', '?')}{breakout_info}"
+        )
+
     # ─── 그리드 이탈 감지 & 대응 ─────────────────────────────
 
     def _check_grid_breakout(self, signal, price: float) -> Optional[str]:
@@ -1172,6 +1332,46 @@ class GridAgent:
                 f"⏳ 6시간 대기 후 재배치 여부 판단\n"
                 f"가격이 범위로 돌아오면 자동 매매 재개"
             )
+
+        # ── 하드 타임아웃: LLM 무시하고 강제 재배치 ──
+        if elapsed >= self.BREAKOUT_HARD_TIMEOUT_SEC:
+            hard_hr = self.BREAKOUT_HARD_TIMEOUT_SEC / 3600
+            self._log(
+                f"🚨 이탈 {elapsed_hr:.1f}h ≥ 하드 타임아웃 {hard_hr:.0f}h "
+                f"→ LLM 건너뛰고 강제 재배치",
+                level="WARNING"
+            )
+            allowed, skip_reason = self._check_restart_allowed("SHIFT_UP", price)
+            if not allowed:
+                self._log(f"수수료 가드 차단: {skip_reason} → 대기 유지", level="WARNING")
+                self.notifier.send(
+                    f"🛡️ 하드 타임아웃 강제 재배치 차단 | {config.SYMBOL}\n"
+                    f"이탈: {elapsed_hr:.1f}h\n"
+                    f"사유: {skip_reason}"
+                )
+                # 타이머 1시간 뒤로 리셋 (매 틱 재시도 방지)
+                self.grid_breakout_time = now - timedelta(
+                    seconds=self.BREAKOUT_HARD_TIMEOUT_SEC - 3600
+                )
+                return "MAINTAIN"
+
+            self._record_grid_restart()
+            old_lower, old_upper = gl, gu
+            self.controller.shift_grid_center(price, price)
+            self.grid_breakout_time = None
+            self.grid_breakout_dir = None
+            self.grid_breakout_notified = False
+            self.notifier.send(
+                f"🚨 하드 타임아웃 강제 재배치 | {config.SYMBOL}\n"
+                f"{'─' * 28}\n"
+                f"이탈 {elapsed_hr:.1f}시간 경과 (한도 {hard_hr:.0f}h)\n"
+                f"이전: {old_lower:,.2f} ~ {old_upper:,.2f}\n"
+                f"새 범위: {self.controller.current_lower:,.2f} ~ "
+                f"{self.controller.current_upper:,.2f}\n"
+                f"중심: {price:,.2f} USDT\n"
+                f"방향: {direction}"
+            )
+            return "MAINTAIN"
 
         # ── 6시간 이상 이탈 → 에이전트에게 재배치 판단 요청 ──
         if elapsed >= self.BREAKOUT_WAIT_SEC:

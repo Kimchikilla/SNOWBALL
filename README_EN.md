@@ -35,7 +35,7 @@ The bot monitors continuously but only calls LLM agents when these events occur:
 | Volatility spike | ATR ≥ 3× average | Grid widening needed? |
 | High risk | Risk score 60+ | Overall market assessment |
 | Volume explosion | Volume ≥ 5× average | Rapid change response |
-| Grid breakout | Price outside range 6hr+ | Reposition decision |
+| Grid breakout | Price outside range 6hr+ | Reposition decision (48hr+ → LLM bypassed, **force SHIFT**) |
 
 When no events are detected, LLM cost is **$0**.
 
@@ -68,7 +68,8 @@ When events trigger, 4 specialist agents analyze independently, then a coordinat
 **Consensus rules:**
 - 3/4+ agreement → adopted
 - Risk Manager STOP → 2x vote weight
-- Split opinions → MAINTAIN (don't touch the bot by default)
+- Split opinions → MAINTAIN by default. **But if breakout > 24hr, adopt majority WIDEN/SHIFT instead**
+- Breakout > 48hr + trend confirmed (ADX≥20) + fee guard passed → WIDEN actively adopted
 - Average confidence ≤ 3 → MAINTAIN (low conviction)
 - Set `MULTI_AGENT_MODE=false` to fall back to single LLM mode
 
@@ -166,6 +167,31 @@ Visual progress bar countdown between ticks:
   ⏳ ████████████████░░░░░░░░░░░░░░░░░░░░░░░░  42.5% (next tick in 1:09)
 ```
 
+### Grid Breakout Escalation
+
+When price leaves the grid range, the agent escalates in stages:
+
+| Breakout Duration | Action |
+|-------------------|--------|
+| 0 ~ 6 hours | Alert only, wait for price to return |
+| 6 hours+ | Call multi-agent with breakout duration context for reposition decision |
+| **48 hours+** | **LLM bypassed — force SHIFT** (fee guard still applies) |
+
+LLM prompts now include duration-aware guidelines: breakouts beyond 24h prioritize repositioning over passive waiting, because opportunity cost (idle capital) exceeds restart fees.
+
+### State Persistence (Restart-Safe)
+
+On restart/update, the agent resumes the breakout timer and daily counters instead of starting from zero:
+
+- End of each tick → state saved to `src/agent_state.json` (atomic `.tmp` → `os.replace`)
+- On startup → auto-restore: breakout timers / restart history / position / cumulative fees / daily counters
+- Saved date ≠ today → only `daily_*` counters reset, everything else preserved
+- Symbol mismatch → restore skipped (prevents cross-contamination between different bots)
+- Save failure → loop continues, error logged only
+- Disable with `STATE_FILE=""`
+
+So restarting after an update won't reset a breakout timer that's already at day 4.
+
 ### Configurable Parameters
 
 | Parameter | Default | Description |
@@ -178,6 +204,9 @@ Visual progress bar countdown between ticks:
 | `GRID_MODE` | `arithmetic` | Grid mode (`arithmetic` / `geometric`) |
 | `LOOP_INTERVAL_SEC` | `120` | Main loop interval (seconds) |
 | `MAX_LOSS_PERCENT` | `15.0` | Stop-loss threshold (% from entry) |
+| `BREAKOUT_WAIT_HOURS` | `6` | Hours to wait before asking LLM about breakout reposition |
+| `BREAKOUT_HARD_TIMEOUT_HOURS` | `48` | Hard timeout — exceeded = LLM skipped, force SHIFT |
+| `STATE_FILE` | `agent_state.json` | State persistence file path (empty string → disabled) |
 | `LLM_PROVIDER` | `anthropic` | LLM provider (`anthropic` / `openai` / `grok` / `gemini`) |
 | `LLM_MODEL` | auto | Model name (auto-selected per provider) |
 | `LLM_TRIGGER_SCORE` | `55` | Minimum score to trigger LLM judgment |
@@ -187,14 +216,15 @@ Visual progress bar countdown between ticks:
 
 ```
 src/
-├── main_agent.py        # Entry point, state machine, Telegram alerts
+├── main_agent.py        # Entry point, state machine, Telegram alerts, state persistence
 ├── multi_agent.py       # Multi-agent consensus (4 specialists + coordinator)
 ├── cost_guard.py        # Cost-aware system (circuit breaker, cache, budget)
 ├── market_analyzer.py   # ATR/RSI/BB/Volume/EMA/ADX → risk score + trend detection
 ├── grid_controller.py   # OKX Grid Bot API (start/widen/shift/pause/liquidate)
 ├── menu.py              # Arrow-key interactive menu (questionary)
 ├── config.py            # .env loader + defaults
-└── requirements.txt     # Dependencies
+├── requirements.txt     # Dependencies
+└── agent_state.json     # (runtime) breakout timer / daily counters / position persistence
 ```
 
 ## Supported LLM Providers
