@@ -210,13 +210,14 @@ class GridController:
         if not self.bot_id:
             return {"status": "no_bot"}
 
-        body = {
-            "algoId":    self.bot_id,
-            "instId":    SYMBOL,
-            "algoOrdType": "grid",
-        }
+        # OKX v5 stop-order-algo는 array of objects를 받음.
         # stopType: "1" = 기존 포지션 유지, "2" = 시장가 청산
-        body["stopType"] = "2" if sell_remaining else "1"
+        body = [{
+            "algoId":      self.bot_id,
+            "instId":      SYMBOL,
+            "algoOrdType": "grid",
+            "stopType":    "2" if sell_remaining else "1",
+        }]
 
         resp = self._post("/api/v5/tradingBot/grid/stop-order-algo", body)
 
