@@ -54,16 +54,26 @@ OKX_BASE_URL   = _env("OKX_BASE_URL", "https://www.okx.com")
 DEMO_MODE      = _env_bool("DEMO_MODE", True)
 
 # ─── 거래 대상 ─────────────────────────────────────────
-SYMBOL         = _env("SYMBOL", "BTC-USDT")
-TOTAL_BUDGET   = _env_float("TOTAL_BUDGET", 1000.0)
-GRID_BUDGET    = _env_float("GRID_BUDGET", 400.0)
-RESERVE_BUDGET = _env_float("RESERVE_BUDGET", 600.0)
+SYMBOL         = _env("SYMBOL", "ETH-USDT")
+TOTAL_BUDGET   = _env_float("TOTAL_BUDGET", 88000.0)
+GRID_BUDGET    = _env_float("GRID_BUDGET", 48000.0)
+RESERVE_BUDGET = _env_float("RESERVE_BUDGET", 40000.0)
 
-# ─── 그리드 기본 설정 ──────────────────────────────────
-GRID_LOWER     = _env_float("GRID_LOWER", 90000.0)
-GRID_UPPER     = _env_float("GRID_UPPER", 110000.0)
-GRID_COUNT     = _env_int("GRID_COUNT", 20)
-GRID_MODE      = _env("GRID_MODE", "arithmetic")
+# ─── 그리드 기본 설정 (중심봇 기준 — 래더 2봇 구성의 주력) ─
+# 2026-04-20 전환: 3봇 20그리드 → 2봇 10그리드 기하 래더
+# 하단봇 1700~2100 / 중심봇 2000~2400 (이 설정이 중심봇)
+GRID_LOWER     = _env_float("GRID_LOWER", 2000.0)
+GRID_UPPER     = _env_float("GRID_UPPER", 2400.0)
+GRID_COUNT     = _env_int("GRID_COUNT", 10)
+GRID_MODE      = _env("GRID_MODE", "geometric")
+
+# ─── 래더 전략 2봇 구성 (보조 봇: 하단봇) ─────────────
+LADDER_MODE        = _env_bool("LADDER_MODE", True)
+LADDER_LOW_ENABLED = _env_bool("LADDER_LOW_ENABLED", True)
+LADDER_LOW_LOWER   = _env_float("LADDER_LOW_LOWER", 1700.0)
+LADDER_LOW_UPPER   = _env_float("LADDER_LOW_UPPER", 2100.0)
+LADDER_LOW_COUNT   = _env_int("LADDER_LOW_COUNT", 10)
+LADDER_LOW_BUDGET  = _env_float("LADDER_LOW_BUDGET", 40000.0)
 
 # ─── 리스크 스코어 임계값 ──────────────────────────────
 SCORE_NORMAL    = 30
