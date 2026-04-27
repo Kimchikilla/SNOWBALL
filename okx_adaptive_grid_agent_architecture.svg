@@ -195,7 +195,7 @@
 <!-- ═══ Layer 7: 알림 (멀티봇 라벨 prefix) ═══ -->
 <rect x="40" y="828" width="680" height="92" rx="10" fill="#1e1b4b" stroke="#818cf8" stroke-width="0.5"/>
 <text x="56" y="850" class="title" fill="#c7d2fe">알림 레이어 (멀티봇 라벨 prefix)</text>
-<text x="56" y="864" class="subtitle" fill="#a5b4fc">텔레그램 — 모든 알림 첫 줄에 [ETH 2100-2400] 같은 봇 식별자 자동 추가</text>
+<text x="56" y="864" class="subtitle" fill="#a5b4fc">텔레그램 — 모든 알림 첫 줄에 [ETH 2000-2500] 같은 봇 식별자 자동 추가</text>
 
 <rect x="56" y="872" width="110" height="18" rx="5" fill="#312e81" stroke="#818cf8" stroke-width="0.5"/>
 <text x="111" y="881" text-anchor="middle" dominant-baseline="central" style="font-size:9px;fill:#c7d2fe">틱 리포트</text>
