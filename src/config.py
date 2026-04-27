@@ -116,6 +116,15 @@ TELEGRAM_CHAT_ID = _env("TELEGRAM_CHAT_ID", "")
 NOTIFY_ON_STATES = ["CAUTION", "WARNING", "EMERGENCY"]
 DAILY_REPORT_HOUR = _env_int("DAILY_REPORT_HOUR", 21)  # 일일 리포트 발송 시간 (0~23)
 
+# 매 틱(5분 간격) 요약 리포트 발송 여부.
+# False면 알림은 이벤트 발생 시(LLM 합의/체결/상태변화/이탈/일일리포트)에만.
+# 알림 폭주 방지용 — 4/27 사용자 피드백으로 도입.
+NOTIFY_TICK_REPORTS = _env_bool("NOTIFY_TICK_REPORTS", False)
+
+# 알림 메시지에 OKX 활성 그리드봇 리스트를 footer로 자동 첨부.
+# 멀티봇 운영 시 매 알림에서 어떤 봇들이 돌고 있는지 한눈에 확인.
+NOTIFY_INCLUDE_BOT_LIST = _env_bool("NOTIFY_INCLUDE_BOT_LIST", True)
+
 # ─── LLM 판단 조건 ─────────────────────────────────────
 LLM_TRIGGER_SCORE  = _env_int("LLM_TRIGGER_SCORE", 55)
 LLM_PROVIDER       = _env("LLM_PROVIDER", "anthropic")

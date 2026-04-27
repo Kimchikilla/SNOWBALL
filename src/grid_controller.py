@@ -125,6 +125,26 @@ class GridController:
             self._log(f"기존 봇 동기화 실패: {e}", level="ERROR")
             return {"status": "error", "msg": str(e)}
 
+    def list_active_bots(self) -> list[dict]:
+        """OKX의 모든 활성 그리드봇 리스트 반환 (심볼 무관, 멀티봇 표시용).
+
+        텔레그램 알림 footer에 어떤 봇들이 돌고 있는지 보여주는 용도.
+        실패 시 빈 리스트 반환 (호출자가 footer 생략 처리).
+        """
+        try:
+            resp = self._get(
+                "/api/v5/tradingBot/grid/orders-algo-pending",
+                params={"algoOrdType": "grid"}
+            )
+            if resp.get("code") != "0":
+                return []
+            bots = resp.get("data", [])
+            if not isinstance(bots, list):
+                return []
+            return [b for b in bots if isinstance(b, dict)]
+        except Exception:
+            return []
+
     # ─── 공개 액션 메서드 ────────────────────────────────────
 
     def ensure_grid_running(self, lower=None, upper=None, count=None) -> dict:

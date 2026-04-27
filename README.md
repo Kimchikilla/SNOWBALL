@@ -227,12 +227,26 @@ python main_agent.py
 
 ### 텔레그램 알림
 
-- **매 틱마다** 상태/점수/추세/현재가/액션/손익 요약 발송
-- **EMERGENCY 시** 10초 간격으로 4회 반복 긴급 알림 발송
-- **상태 변화 시** 즉시 알림 발송
-- **매일 지정 시간** 일일 리포트 (PnL, 체결 내역 요약) 발송
+- **이벤트 기반 발송이 디폴트** — `NOTIFY_TICK_REPORTS=false`(기본값) 시 매 틱 요약은 생략하고 아래 이벤트에만 알림. 알림 폭주 방지.
+- **이벤트 알림** (항상 발송):
+  - LLM 멀티 에이전트 합의 결과
+  - WIDEN / SHIFT_UP / SHIFT_DOWN / STOP 액션 실행
+  - 매수/매도 체결
+  - 그리드 이탈 첫 감지 / 범위 복귀 / 하드 타임아웃 강제 재배치
+  - 상태 변화 (`NOTIFY_ON_STATES` 지정 — 기본 CAUTION/WARNING/EMERGENCY)
+  - 손절 청산 / 긴급 청산
+  - 일일 리포트 (`DAILY_REPORT_HOUR` 시간에 PnL + 체결 요약)
+- **EMERGENCY 시** 10초 간격으로 4회 반복 긴급 알림 발송 (`NOTIFY_TICK_REPORTS` 무관 항상)
+- **매 틱 요약 (옵션)** — `NOTIFY_TICK_REPORTS=true`로 켜면 5분마다 가격/지표/봇 상태 요약 발송
 - **설정 시 자동 검증** — Bot Token 유효성 확인 + Chat ID 자동 감지 + 테스트 메시지 발송
 - **봇 라벨 자동 prefix** — 멀티봇 환경에서 어느 봇 알림인지 즉시 식별 가능
+- **봇 리스트 footer (옵션)** — `NOTIFY_INCLUDE_BOT_LIST=true`(기본값) 시 모든 알림 끝에 OKX 활성 그리드봇 리스트 자동 첨부 (60초 캐시):
+
+```
+─── 운영 중 봇 ───
+🟢 1700-2100 (12 RT, 📈 +45 USDT)
+🟢 2000-2500 (3 RT, 📈 +18 USDT)
+```
 
 ### 멀티봇 환경 알림 핸들링
 
@@ -312,6 +326,8 @@ LLM 프롬프트에 이탈 기간별 가이드라인이 주입되어, 24h 이상
 | `LLM_TRIGGER_SCORE` | `55` | LLM 판단 요청 최소 점수 |
 | `MULTI_AGENT_MODE` | `true` | 멀티 에이전트 합의 모드 (`true` / `false`) |
 | `BOT_LABEL` | 자동 | 멀티봇 환경에서 텔레그램 알림 prefix용 별칭 (빈 값이면 `{base} {lower}-{upper}` 자동 생성) |
+| `NOTIFY_TICK_REPORTS` | `false` | 매 틱(5분마다) 요약 알림 발송 여부. `false`면 이벤트 발생 시에만 알림 |
+| `NOTIFY_INCLUDE_BOT_LIST` | `true` | 알림 끝에 OKX 활성 그리드봇 리스트 footer 자동 첨부 (60초 캐시) |
 
 ## 파일 구조
 

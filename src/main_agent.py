@@ -27,34 +27,52 @@ from cost_guard import CostGuard
 
 # ──────────────────────────────────────────────────────────────
 class Notifier:
-    """텔레그램 알림 발송 (멀티봇 라벨 prefix 지원)."""
+    """텔레그램 알림 발송 (멀티봇 라벨 prefix + 봇 리스트 footer 지원)."""
 
-    def __init__(self, bot_label: str = ""):
+    def __init__(self, bot_label: str = "", bot_list_provider=None):
+        """
+        bot_label: 알림 첫 줄에 prefix할 봇 식별자 (예: "ETH 2000-2500").
+        bot_list_provider: 호출하면 OKX 활성 봇 리스트를 footer 문자열로
+                           반환하는 callable. None이면 footer 생략.
+        """
         # 멀티봇 환경에서 어느 봇의 알림인지 식별하기 위한 prefix.
-        # 빈 문자열이면 prefix 생략 (단일봇 호환).
         self.bot_label: str = bot_label or ""
+        # OKX 활성 봇 리스트 footer를 매 알림에 첨부할 provider.
+        # 호출 빈도가 잦으니 provider 쪽에서 캐시 권장 (60초 TTL 등).
+        self.bot_list_provider = bot_list_provider
 
     def set_label(self, label: str):
         """봇 라벨 변경 (재시작/SHIFT 등으로 범위가 바뀔 때 호출)."""
         self.bot_label = label or ""
 
     def _prefix(self, message: str) -> str:
-        """메시지 첫 줄에 봇 라벨 prefix를 추가.
-
-        멀티봇 운영 시 텔레그램 채널 하나에 여러 봇 알림이 섞여도
-        어느 봇 이벤트인지 즉시 식별 가능하다.
-        라벨이 비어있으면 원본 그대로 반환 (단일봇 호환).
-        """
+        """메시지 첫 줄에 봇 라벨 prefix를 추가."""
         if not self.bot_label:
             return message
-        # 메시지가 이미 라벨로 시작하면 중복 prefix 방지
         tag = f"[{self.bot_label}]"
         if message.startswith(tag):
             return message
         return f"{tag} {message}"
 
+    def _append_bot_list(self, message: str) -> str:
+        """봇 리스트 footer를 메시지 끝에 첨부.
+
+        provider가 None이거나 빈 문자열을 반환하면 원본 그대로.
+        provider 예외는 무시하고 원본 반환 (알림 자체가 막히면 안 됨).
+        """
+        if not self.bot_list_provider:
+            return message
+        try:
+            footer = self.bot_list_provider()
+        except Exception as e:
+            print(f"[Notifier] bot list provider 실패: {e}")
+            return message
+        if not footer:
+            return message
+        return f"{message}\n{footer}"
+
     def send(self, message: str):
-        message = self._prefix(message)
+        message = self._append_bot_list(self._prefix(message))
 
         # 항상 터미널에도 출력
         ts = datetime.now().strftime("%H:%M:%S")
@@ -270,7 +288,12 @@ class GridAgent:
         # 멀티봇 환경 식별용 라벨 — config.SYMBOL + 그리드 범위로 자동 생성.
         # 텔레그램 채널 하나에 여러 봇이 알림 보내도 [ETH 2000-2400] 같은 prefix로 구분된다.
         self.bot_label   = self._compose_bot_label()
-        self.notifier    = Notifier(bot_label=self.bot_label)
+        # 봇 리스트 footer 캐시 (OKX API 빈번 호출 방지, 60초 TTL).
+        self._bot_list_cache: tuple[float, str] = (0.0, "")
+        self.notifier    = Notifier(
+            bot_label=self.bot_label,
+            bot_list_provider=self._get_bot_list_footer if config.NOTIFY_INCLUDE_BOT_LIST else None,
+        )
         self.llm_judge   = LLMJudge()
         self.multi_agent = MultiAgentJudge()
         self.cost_guard  = CostGuard(model=config.LLM_MODEL, daily_budget=5.0)
@@ -1211,6 +1234,48 @@ class GridAgent:
             pass
         return signal
 
+    def _get_bot_list_footer(self) -> str:
+        """OKX의 활성 그리드봇 리스트를 텔레그램 footer 문자열로 반환.
+
+        멀티봇 운영 시 매 알림에서 어떤 봇들이 돌고 있는지 보여준다.
+        OKX API 호출이 빈번해지지 않도록 60초 캐시.
+        실패 시 빈 문자열 반환 → footer 생략 (알림 자체 차단 안 함).
+        """
+        import time
+        now = time.time()
+        cached_at, cached_str = self._bot_list_cache
+        if now - cached_at < 60 and cached_str:
+            return cached_str
+
+        try:
+            bots = self.controller.list_active_bots()
+        except (AttributeError, Exception):
+            bots = []
+
+        if not bots:
+            return ""
+
+        lines = ["─── 운영 중 봇 ───"]
+        for b in bots:
+            try:
+                lo = float(b.get('minPx', 0))
+                hi = float(b.get('maxPx', 0))
+                state = b.get('state', '?')
+                state_emoji = '🟢' if state == 'running' else '🔴' if state == 'stopped' else '⚪'
+                grid_profit = float(b.get('gridProfit', 0) or 0)
+                arb = b.get('arbitrageNum', '0')
+                pnl_emoji = '📈' if grid_profit >= 0 else '📉'
+                lines.append(
+                    f"{state_emoji} {int(lo)}-{int(hi)} "
+                    f"({arb} RT, {pnl_emoji} {grid_profit:+,.0f} USDT)"
+                )
+            except (ValueError, TypeError, KeyError):
+                continue
+
+        result = "\n".join(lines)
+        self._bot_list_cache = (now, result)
+        return result
+
     def _check_restart_allowed(self, action: str, current_price: float) -> tuple[bool, str]:
         """그리드 재시작이 수수료 대비 합리적인지 체크."""
         if action not in ("WIDEN", "SHIFT_UP", "SHIFT_DOWN"):
@@ -1585,9 +1650,18 @@ class GridAgent:
 
     def _send_tick_report(self, signal, price: float, action: str,
                           trend: str, trend_strength: float):
-        """매 틱마다 텔레그램으로 요약 발송. EMERGENCY 시 반복 알림."""
+        """매 틱마다 텔레그램으로 요약 발송. EMERGENCY 시 반복 알림.
+
+        config.NOTIFY_TICK_REPORTS=False면 매 틱 요약은 건너뛰고
+        EMERGENCY 반복 알림만 발송 (사용자가 알림 폭주를 호소한 4/27 피드백).
+        이벤트성 알림(LLM 합의/체결/이탈/상태변화/일일)은 다른 경로로 발송됨.
+        """
         state_emoji = {"NORMAL": "🟢", "CAUTION": "🟡", "WARNING": "🟠", "EMERGENCY": "🔴"}
         emoji = state_emoji.get(signal.state, "⚪")
+
+        # 빠른 종료: 매 틱 요약을 끈 경우, EMERGENCY 반복만 처리하고 종료
+        if not config.NOTIFY_TICK_REPORTS and signal.state != "EMERGENCY":
+            return
         pnl_str = ""
         try:
             pnl = self.controller.get_grid_pnl()
