@@ -28,6 +28,10 @@ fills*.json
 orders*.json
 *.okx.json
 
+# 백테스트 raw 캔들 데이터 (재현 가능, 영속화 가치 없음)
+backtests/data/
+backtests/data/*.json
+
 # IDE / Editor
 .idea/
 .vscode/
