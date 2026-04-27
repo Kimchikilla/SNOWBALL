@@ -27,9 +27,35 @@ from cost_guard import CostGuard
 
 # ──────────────────────────────────────────────────────────────
 class Notifier:
-    """텔레그램 알림 발송"""
+    """텔레그램 알림 발송 (멀티봇 라벨 prefix 지원)."""
+
+    def __init__(self, bot_label: str = ""):
+        # 멀티봇 환경에서 어느 봇의 알림인지 식별하기 위한 prefix.
+        # 빈 문자열이면 prefix 생략 (단일봇 호환).
+        self.bot_label: str = bot_label or ""
+
+    def set_label(self, label: str):
+        """봇 라벨 변경 (재시작/SHIFT 등으로 범위가 바뀔 때 호출)."""
+        self.bot_label = label or ""
+
+    def _prefix(self, message: str) -> str:
+        """메시지 첫 줄에 봇 라벨 prefix를 추가.
+
+        멀티봇 운영 시 텔레그램 채널 하나에 여러 봇 알림이 섞여도
+        어느 봇 이벤트인지 즉시 식별 가능하다.
+        라벨이 비어있으면 원본 그대로 반환 (단일봇 호환).
+        """
+        if not self.bot_label:
+            return message
+        # 메시지가 이미 라벨로 시작하면 중복 prefix 방지
+        tag = f"[{self.bot_label}]"
+        if message.startswith(tag):
+            return message
+        return f"{tag} {message}"
 
     def send(self, message: str):
+        message = self._prefix(message)
+
         # 항상 터미널에도 출력
         ts = datetime.now().strftime("%H:%M:%S")
         DIM = "\033[2m"
@@ -241,7 +267,10 @@ class GridAgent:
         self.analyzer    = MarketAnalyzer()
         self.controller  = GridController()
         self.fetcher     = OKXDataFetcher()
-        self.notifier    = Notifier()
+        # 멀티봇 환경 식별용 라벨 — config.SYMBOL + 그리드 범위로 자동 생성.
+        # 텔레그램 채널 하나에 여러 봇이 알림 보내도 [ETH 2000-2400] 같은 prefix로 구분된다.
+        self.bot_label   = self._compose_bot_label()
+        self.notifier    = Notifier(bot_label=self.bot_label)
         self.llm_judge   = LLMJudge()
         self.multi_agent = MultiAgentJudge()
         self.cost_guard  = CostGuard(model=config.LLM_MODEL, daily_budget=5.0)
@@ -702,6 +731,9 @@ class GridAgent:
     def _decide_action(self, signal: MarketSignal, price: float) -> str:
         """이벤트 기반 의사결정. 이벤트가 있을 때만 에이전트 호출."""
 
+        # 멀티봇 환경 대비: 라벨을 signal에 주입해 LLM 컨텍스트에 봇 식별자 노출.
+        self._attach_bot_label(signal)
+
         score = signal.risk_score
         trend = getattr(signal, "trend", "SIDEWAYS")
         trend_strength = getattr(signal, "trend_strength", 0.0)
@@ -717,8 +749,9 @@ class GridAgent:
         event_str = "\n".join(f"  - {e}" for e in events)
         self._log(f"⚡ 이벤트 감지 ({len(events)}건):\n{event_str}")
 
-        if score >= 90:
-            return "STOP"  # 극단적 스코어는 바로 STOP
+        # ─── 그리드봇 헌법 ③: score 단발 spike로 코드가 STOP을 결정하지 않는다.
+        # 극단적 score여도 멀티 에이전트 합의 + 코드 레벨 STOP 가드를 거치도록 한다.
+        # (이전: score≥90 → 즉시 STOP. 단발성 spike에 봇이 멈추는 사고 원인이었음.)
 
         # CostGuard 체크
         should_call, reason, cached_action = self.cost_guard.pre_check(signal)
@@ -741,7 +774,7 @@ class GridAgent:
                     f"멀티 에이전트 합의: {result.final_action} "
                     f"(동의율={result.agreement_rate:.0f}%, score={score})"
                 )
-                self.notifier.send(format_consensus_for_telegram(result))
+                self.notifier.send(format_consensus_for_telegram(result, bot_label=self.bot_label))
                 self.cost_guard.post_success(signal, result.final_action, num_calls=5)
                 action = result.final_action
             else:
@@ -789,6 +822,8 @@ class GridAgent:
             )
             new_lower = self.controller.current_lower
             new_upper = self.controller.current_upper
+            # 그리드 범위 변경 → 라벨 갱신 (멀티봇 알림 식별 정확도 유지)
+            self._refresh_bot_label()
             est_fee = self.holding_qty * price * 0.002 if self.holding_qty > 0 else 0
             self.notifier.send(
                 f"🔄 그리드 확대 (WIDEN) | {config.SYMBOL}\n"
@@ -814,6 +849,7 @@ class GridAgent:
                     offset = grid_range * 0.1
                     new_center = price + offset
                     self.controller.shift_grid_center(new_center, price)
+                    self._refresh_bot_label()
                     self.last_shift_time = datetime.now()
                     trend_strength = getattr(signal, "trend_strength", 0.0)
                     est_fee = self.holding_qty * price * 0.002 if self.holding_qty > 0 else 0
@@ -844,6 +880,7 @@ class GridAgent:
                     offset = grid_range * 0.1
                     new_center = price - offset
                     self.controller.shift_grid_center(new_center, price)
+                    self._refresh_bot_label()
                     self.last_shift_time = datetime.now()
                     trend_strength = getattr(signal, "trend_strength", 0.0)
                     est_fee = self.holding_qty * price * 0.002 if self.holding_qty > 0 else 0
@@ -1060,7 +1097,11 @@ class GridAgent:
     # ─── 수수료 컨텍스트 ─────────────────────────────────────
 
     def _build_fee_context(self, current_price: float) -> str:
-        """에이전트에게 제공할 수수료/손익 컨텍스트."""
+        """에이전트에게 제공할 수수료/손익/운영 컨텍스트.
+
+        그리드봇 헌법 ④: LLM이 "정지의 비용"을 숫자로 인식하도록
+        누적 수익, 일평균 수익, 일일 기회비용, 운영 기간을 함께 주입.
+        """
         # 미실현 손익
         unrealized = 0.0
         avg_buy = 0.0
@@ -1076,19 +1117,98 @@ class GridAgent:
         # 예상 재시작 수수료 (보유분 매도 + 새 주문 체결 = 약 0.2%)
         est_restart_fee = self.holding_qty * current_price * 0.002 if self.holding_qty > 0 else 0
 
+        # ─── 봇 운영 컨텍스트 (그리드봇 헌법 ④) ───
+        # 운영 일수 추정: 봇 생성 시각이 있으면 사용, 없으면 누적 수수료 기반 보수적 추정
+        running_days = self._estimate_running_days()
+        avg_daily_pnl = (self.realized_pnl / running_days) if running_days > 0 else 0.0
+        # 정지의 일일 기회비용 = 최근 일평균 실현 손익 (양수일 때만 의미)
+        opportunity_cost_per_day = max(avg_daily_pnl, 0.0)
+        # 당일 체결 횟수
+        today_fills = self.daily_buys + self.daily_sells
+
         return (
-            f"\n=== 수수료/손익 현황 ===\n"
-            f"당일 누적 수수료: {self.daily_fees:,.4f} USDT\n"
-            f"총 누적 수수료: {self.total_fees_paid:,.4f} USDT\n"
+            f"\n=== 봇 운영 현황 (정지의 기회비용 인식용) ===\n"
+            f"누적 실현 손익: {self.realized_pnl:+,.2f} USDT\n"
+            f"누적 수수료: {self.total_fees_paid:,.2f} USDT\n"
+            f"운영 기간(추정): {running_days:.1f}일\n"
+            f"일평균 실현 손익: {avg_daily_pnl:+,.2f} USDT/일\n"
+            f"⚡ 정지 시 일일 기회비용: ~{opportunity_cost_per_day:,.2f} USDT/일\n"
+            f"   (봇이 돌면 하루에 평균 이만큼 번다는 뜻 — STOP은 이만큼을 매일 포기)\n"
+            f"\n=== 당일 활동 ===\n"
+            f"당일 체결: 매수 {self.daily_buys}회 + 매도 {self.daily_sells}회 = {today_fills}건\n"
             f"당일 실현 손익: {self.daily_realized:+,.4f} USDT\n"
-            f"미실현 손익: {unrealized:+,.4f} USDT\n"
-            f"보유 수량: {self.holding_qty:.6f} (평균 매수가: {avg_buy:,.2f})\n"
+            f"당일 누적 수수료: {self.daily_fees:,.4f} USDT\n"
             f"당일 그리드 재시작: {self.grid_restart_count}회\n"
             f"최근 1시간 재시작: {len(recent_restarts)}회\n"
-            f"그리드 재시작 시 예상 수수료: ~{est_restart_fee:,.2f} USDT\n"
-            f"\n⚠ WIDEN/SHIFT는 그리드 재시작(중지→재시작)이며 수수료가 발생합니다.\n"
-            f"수수료가 예상 수익보다 크면 MAINTAIN을 권고하세요."
+            f"\n=== 포지션 ===\n"
+            f"미실현 손익: {unrealized:+,.4f} USDT\n"
+            f"보유 수량: {self.holding_qty:.6f} (평균 매수가: {avg_buy:,.2f})\n"
+            f"\n=== 액션 비용 ===\n"
+            f"WIDEN/SHIFT 시 예상 수수료: ~{est_restart_fee:,.2f} USDT (1회)\n"
+            f"STOP 시 비용: 위 수수료 + 일일 기회비용 영구 손실 (봇이 돌면 매일 벌었을 금액)\n"
+            f"⚠ 그리드봇은 횡보로 돈 벌므로, 단발성 변동성 spike는 STOP 사유가 되지 않습니다."
         )
+
+    def _estimate_running_days(self) -> float:
+        """봇 운영 기간 추정 (일 단위).
+
+        controller에 봇 생성 시각이 있으면 그걸 사용, 없으면 1.0 반환.
+        """
+        bot_ctime = getattr(self.controller, "bot_ctime", None)
+        if isinstance(bot_ctime, datetime):
+            elapsed = (datetime.now() - bot_ctime).total_seconds()
+            return max(elapsed / 86400, 1.0)
+        # 기본값: 1일 (분모 0 방지)
+        return 1.0
+
+    def _compose_bot_label(self) -> str:
+        """봇 식별 라벨 자동 생성. 멀티봇 환경에서 텔레그램 알림 식별용.
+
+        우선순위:
+          1. config.BOT_LABEL (사용자 지정 별칭) — 설정되어 있으면 그대로 사용
+          2. controller의 현재 그리드 범위 — 런타임 SHIFT/WIDEN 반영
+          3. config.GRID_LOWER/UPPER — 봇 시작 전 fallback
+
+        예: "ETH 2000-2400"
+        """
+        explicit = getattr(config, "BOT_LABEL", "") or ""
+        if explicit:
+            return explicit
+        try:
+            base = (config.SYMBOL or "").split("-")[0] or "BOT"
+            # 런타임 그리드 범위 우선 (SHIFT/WIDEN으로 바뀐 값 반영)
+            lo = getattr(self.controller, "current_lower", None)
+            hi = getattr(self.controller, "current_upper", None)
+            if lo is None or hi is None:
+                lo = config.GRID_LOWER
+                hi = config.GRID_UPPER
+            return f"{base} {int(lo)}-{int(hi)}"
+        except (ValueError, TypeError, AttributeError):
+            return config.SYMBOL or "BOT"
+
+    def _refresh_bot_label(self):
+        """그리드 범위가 바뀌었을 수 있을 때 라벨 갱신.
+
+        WIDEN/SHIFT 직후 또는 매 틱 시작 시 호출.
+        Notifier에도 즉시 반영해서 다음 알림부터 새 라벨 prefix가 붙는다.
+        """
+        new_label = self._compose_bot_label()
+        if new_label != self.bot_label:
+            self._log(f"봇 라벨 갱신: {self.bot_label} → {new_label}")
+            self.bot_label = new_label
+            self.notifier.set_label(new_label)
+
+    def _attach_bot_label(self, signal):
+        """멀티 에이전트 컨텍스트에 봇 라벨 주입.
+
+        multi_agent._build_market_context는 signal.bot_label을 읽어
+        시장 데이터 헤더에 [봇: <label>]을 박는다 — LLM이 어느 봇 판단인지 인식.
+        """
+        try:
+            setattr(signal, "bot_label", self.bot_label)
+        except (AttributeError, TypeError):
+            pass
+        return signal
 
     def _check_restart_allowed(self, action: str, current_price: float) -> tuple[bool, str]:
         """그리드 재시작이 수수료 대비 합리적인지 체크."""
@@ -1358,6 +1478,7 @@ class GridAgent:
             self._record_grid_restart()
             old_lower, old_upper = gl, gu
             self.controller.shift_grid_center(price, price)
+            self._refresh_bot_label()
             self.grid_breakout_time = None
             self.grid_breakout_dir = None
             self.grid_breakout_notified = False
@@ -1423,6 +1544,7 @@ class GridAgent:
                     self._record_grid_restart()
                     old_lower, old_upper = gl, gu
                     self.controller.shift_grid_center(price, price)
+                    self._refresh_bot_label()
                     self.grid_breakout_time = None
                     self.grid_breakout_dir = None
                     self.grid_breakout_notified = False

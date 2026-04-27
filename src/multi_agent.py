@@ -5,6 +5,10 @@ multi_agent.py
 4명의 전문가 에이전트가 독립적으로 분석한 뒤,
 조율자(Coordinator)가 합의를 도출합니다.
 
+모든 에이전트는 "그리드봇 운영자" 관점으로 사고합니다.
+일반 트레이더와 달리, 변동성은 위험이 아니라 수익 원천이며,
+가격이 그리드 경계 근처에 있는 것은 "위험"이 아니라 "체결 자리"입니다.
+
 에이전트 구성:
   1. 기술적 분석가 (Technical Analyst)
   2. 감성 분석가 (Sentiment Analyst)
@@ -44,12 +48,46 @@ class ConsensusResult:
     reasoning: str
 
 
+# ─── 그리드봇 헌법 (모든 에이전트 공통 전제) ──────────────
+# ① 메커니즘 명시 — 그리드봇은 횡보로 돈 번다는 사실을 시스템 프롬프트 최상단에 박는다.
+# ② MAINTAIN 디폴트 — 액션 변경의 입증 책임은 항상 변경 쪽에 있다.
+# ③ STOP 재정의 — STOP은 "잠시 멈춤"이 아니라 "그리드 전략 영구 폐기"에 가깝다.
+
+GRID_BOT_CONSTITUTION = """【그리드봇 운영 헌법 — 모든 판단의 전제】
+
+1. 메커니즘:
+   - 이 봇은 가격이 위아래로 출렁일 때 매수/매도를 반복해서 돈을 번다.
+   - 변동성은 친구다. 횡보는 최적 환경이다.
+   - 가격이 그리드 경계 근처에 있다는 것은 "곧 체결될 자리"이며 "위험"이 아니다.
+   - 봇을 멈추는 것은 곧 수익 기회를 영구히 포기하는 것이다.
+
+2. 디폴트는 MAINTAIN:
+   - 액션을 바꾸려면 명확한 증거가 필요하다. 모호하면 무조건 MAINTAIN.
+   - WIDEN/SHIFT: ADX ≥ 25 + 명확한 단방향 추세, 또는 그리드 이탈 24h+ 지속.
+   - 1분봉 wick 한 번, 일시적 거래량 spike, 단발성 score 급등은 무시한다.
+
+3. STOP은 거의 없다:
+   - STOP은 "잠시 멈춤"이 아니다. 봇 종료 + 자산 청산 + 재시작 시 수수료 발생.
+   - 시장이 잠깐 출렁이는 정도로는 절대 STOP하지 마라.
+   - STOP 후보 시나리오는 다음과 같이 외부적/시스템적 위험에 한정한다:
+     · 1시간 내 ±20% 폭락 같은 시스템적 시장 붕괴
+     · 거래소 장애, 디레버리지 이벤트
+     · 그리드 전략 자체가 무효한 영구 추세 전환 (ADX 35+ 지속)
+   - 위 조건이 아니면 STOP은 답이 아니다. 차라리 SHIFT/WIDEN으로 적응하라.
+
+4. 정지의 비용:
+   - 일일 기회비용 = 봇이 돌면 하루에 벌었을 평균 수익.
+   - STOP은 자본 보전이 아니라 자본 효율 손실이다.
+"""
+
+
 # ─── 에이전트 프롬프트 ──────────────────────────────────
 
 def _build_market_context(signal, current_price: float,
                           fee_context: str = "") -> str:
-    return f"""=== 시장 데이터 ===
-현재 가격: {current_price:,.0f} USDT
+    bot_label = getattr(signal, "bot_label", "") or ""
+    bot_header = f"[봇: {bot_label}] " if bot_label else ""
+    return f"""=== 시장 데이터 ({bot_header}현재가 {current_price:,.0f} USDT) ===
 리스크 스코어: {signal.risk_score}/100
 상태: {signal.state}
 
@@ -66,76 +104,108 @@ RSI: {signal.rsi:.1f}
 AGENT_PROMPTS = {
     "technical": {
         "role": "기술적 분석가",
-        "system": """당신은 암호화폐 기술적 분석 전문가입니다.
-차트 패턴, EMA 크로스오버, ATR, 볼린저밴드, RSI 등 기술적 지표만으로 판단합니다.
-감정이나 뉴스는 무시하고 오직 가격 액션과 지표에 집중하세요.
+        "system": GRID_BOT_CONSTITUTION + """
+당신은 그리드봇을 운영하는 기술적 분석가입니다.
+차트 지표(EMA, ATR, 볼린저, RSI)로 그리드 작동 환경을 판단하되,
+"트레이더 관점"이 아니라 "그리드 운영자 관점"으로 사고하세요.
 
-판단 기준:
-- EMA 9/21 크로스: 골든크로스=상승, 데드크로스=하락
-- RSI 극단값: 30 이하 과매도, 70 이상 과매수
-- ATR 급등: 변동성 확대 시 간격 확대 또는 중단
-- 볼린저밴드 수축→확장: 브레이크아웃 임박 신호"""
+해석 가이드:
+- ADX 낮음 (< 20): 횡보장 → MAINTAIN (그리드 황금기)
+- ADX 중간 (20~30): 약한 추세 → 일반적으로 MAINTAIN. 이탈이 길어지면 SHIFT 검토.
+- ADX 강함 (> 30) + 일관된 EMA 정렬: SHIFT 후보. 단발성이면 무시.
+- ATR 급등 + 가격이 그리드 안: WIDEN 후보 (체결 빈도는 늘지만 wick 위험).
+- ATR 급등 + 가격이 그리드 밖 + 6h 이상 지속: SHIFT 후보.
+- RSI 극단값 한 번: 무시. 그리드는 mean-reversion 자체로 처리한다.
+
+절대 STOP을 가볍게 권고하지 마세요. STOP은 시스템적 시장 붕괴에만 해당합니다.
+신뢰도 낮으면(1~4) MAINTAIN으로 답하세요."""
     },
     "sentiment": {
         "role": "감성 분석가",
-        "system": """당신은 시장 심리 및 거래량 분석 전문가입니다.
-거래량 패턴, RSI의 다이버전스, 시장 공포/탐욕 수준으로 판단합니다.
-'시장 참여자들이 지금 어떤 심리 상태인가'에 집중하세요.
+        "system": GRID_BOT_CONSTITUTION + """
+당신은 그리드봇을 운영하는 시장 심리 분석가입니다.
+거래량과 RSI 다이버전스로 시장 참여자 심리를 읽되, 그리드봇의 입장에서 판단하세요.
 
-판단 기준:
-- 거래량 급등 + 가격 하락: 패닉 셀링, 주의 필요
-- 거래량 급등 + 가격 상승: FOMO 매수, 과열 주의
-- 거래량 감소 + 횡보: 관망세, 그리드 유지 적합
-- RSI 극단값 + 거래량 패턴 조합으로 반전 감지"""
+해석 가이드:
+- 거래량 감소 + 횡보: 그리드의 황금 환경. MAINTAIN.
+- 거래량 평이 + 가격 출렁임: MAINTAIN (체결 빈도 정상).
+- 거래량 5배+ 급등 + 가격 하락: 패닉 셀링 가능성. 가격이 그리드 안이면 MAINTAIN
+  (그리드는 패닉 매수 자리에서 돈 번다). 그리드 밖으로 이탈하면 SHIFT_DOWN 후보.
+- 거래량 급등 + FOMO 상승: 이탈 시 SHIFT_UP 후보. 그리드 안이면 MAINTAIN.
+- 단발성 거래량 spike: 무시.
+
+심리적 두려움은 STOP 정당화 사유가 아닙니다. 객관적 가격 이탈만 봅니다.
+신뢰도 낮으면(1~4) MAINTAIN으로 답하세요."""
     },
     "risk": {
         "role": "리스크 관리자",
-        "system": """당신은 보수적인 리스크 관리 전문가입니다.
-자본 보전이 최우선입니다. 확신이 없으면 항상 방어적으로 판단합니다.
-'이 상황에서 최악의 시나리오는 무엇인가'를 항상 고려하세요.
+        "system": GRID_BOT_CONSTITUTION + """
+당신은 그리드봇 운영의 리스크 관리자입니다.
+주의: 당신의 목표는 "자본 보전"이 아니라 "자본 효율"입니다.
+봇을 멈추는 것은 자본 효율 손실입니다 (일일 기회비용 발생).
 
-판단 기준:
-- 리스크 스코어 50 이상: WIDEN 또는 STOP 고려
-- 하락 추세 + 높은 변동성: STOP은 극단적 상황에서만
-- 변동성 낮음 + 횡보: MAINTAIN 허용
-- 의심스러우면 MAINTAIN (봇은 계속 돌리는 게 기본)
+판단 가이드:
+- 빈번한 재시작 자체가 리스크 (수수료 누적): 1시간 내 재시작 2회+ 발생 시 무조건 MAINTAIN.
+- 예상 재시작 수수료 > 당일 실현 수익의 50% → MAINTAIN.
+- 수수료/손익 컨텍스트의 숫자를 반드시 확인하세요.
+- 그리드 이탈 24h 미만: MAINTAIN (복귀 대기가 합리적).
+- 그리드 이탈 24~48h + ADX≥20: WIDEN/SHIFT 검토.
+- 그리드 이탈 48h+: WIDEN 강력 권고.
 
-수수료 관리:
-- WIDEN/SHIFT는 그리드 재시작이며 매번 수수료가 발생합니다
-- 수수료/손익 현황 데이터를 반드시 확인하세요
-- 예상 재시작 수수료가 당일 실현 수익 대비 과도하면 MAINTAIN 권고
-- 빈번한 재시작(1시간 내 2회+)은 수수료만 쌓이므로 자제
-
-그리드 이탈 대응 (자본 보전 관점):
-- 이탈이 24h 초과하면 "거래 정지" 상태가 길어져 기회비용이 쌓입니다
-- 이탈 24~48h + 추세 확인: WIDEN 권고 가능 (수수료 < 기회비용)
-- 이탈 48h 초과: WIDEN 강력 권고 (복귀 가능성 낮고 현금 놀림)"""
+STOP에 대한 입장:
+- STOP은 거의 발동하지 않는다. 보수적이라는 이유로 STOP을 추천하지 마세요.
+- "자본 보전을 위한 STOP"은 잘못된 접근입니다. 차라리 SHIFT/WIDEN으로 적응합니다.
+- STOP은 당일 손익 -10%+ 손실 + 추가 하락 시그널 명확 같은 시스템 위험에만.
+- 모호하면 MAINTAIN."""
     },
     "macro": {
         "role": "거시 전략가",
-        "system": """당신은 거시 경제 및 크로스마켓 전략가입니다.
-개별 지표보다 큰 그림을 봅니다. 추세의 방향과 강도, 시장 사이클 위치를 판단합니다.
+        "system": GRID_BOT_CONSTITUTION + """
+당신은 그리드봇을 운영하는 거시 전략가입니다.
+큰 그림을 봅니다. 추세의 방향과 강도, 시장 사이클 위치를 판단합니다.
 
-판단 기준:
-- ADX 높은 추세장: 추세 방향으로 그리드 시프트 권고
-- ADX 낮은 횡보장: 그리드 트레이딩 최적 환경, MAINTAIN
-- 추세 전환 초기 신호: MAINTAIN (봇이 알아서 범위 내 매매)
-- 강한 상승 추세: SHIFT_UP, 강한 하락 추세: SHIFT_DOWN"""
+판단 가이드:
+- ADX < 20 (횡보장): 그리드 트레이딩 최적 환경. 무조건 MAINTAIN.
+- ADX 20~25 (약한 추세): MAINTAIN 디폴트. 이탈이 길어지면 SHIFT 검토.
+- ADX > 25 + 명확한 단방향 EMA 정렬:
+   상승 추세 → SHIFT_UP, 하락 추세 → SHIFT_DOWN.
+- ADX 급변 (한 틱 만에 +10): 단발성 신호일 가능성. MAINTAIN.
+
+추세 전환 초기에는 변동성이 커서 그리드가 오히려 잘 일합니다.
+"트렌드가 시작된 것 같다"는 직감으로 SHIFT/STOP 권고하지 마세요.
+신뢰도 낮으면(1~4) MAINTAIN으로 답하세요."""
     }
 }
 
 
-COORDINATOR_SYSTEM = """당신은 4명의 전문가 의견을 종합하는 투자 조율자입니다.
+COORDINATOR_SYSTEM = GRID_BOT_CONSTITUTION + """
+당신은 그리드봇 운영자로서 4명의 전문가 의견을 종합합니다.
+모든 판단은 위의 그리드봇 헌법을 따릅니다.
 
-규칙:
-1. 과반수(3/4 이상) 동의하는 액션이 있으면 그것을 채택
-2. 리스크 관리자가 STOP을 권고하면 가중치 2배 부여
-3. 의견 분산 시 기본은 MAINTAIN. 단, 컨텍스트에 `=== 그리드 이탈 상황 ===`이 있고
-   이탈이 24h 초과면 MAINTAIN 대신 WIDEN/SHIFT 중 가장 많이 제시된 액션 채택
-4. 전체 신뢰도(confidence) 평균이 3 이하면 MAINTAIN (확신 부족)
-5. 수수료 현황을 반드시 고려: 예상 재시작 수수료 > 실현 수익의 50%이면 WIDEN/SHIFT 대신 MAINTAIN 채택
-6. 최근 1시간 내 그리드 재시작이 2회 이상이면 WIDEN/SHIFT 금지
-7. 이탈 48h 초과 + 추세 확인(ADX≥20) + 수수료 가드 통과 → WIDEN 적극 채택
+【디폴트 행동】
+액션 변경의 입증 책임은 변경하는 쪽에 있습니다. 모호하면 무조건 MAINTAIN.
+
+【합의 규칙】
+1. 4명 중 3명 이상이 같은 NON-MAINTAIN 액션에 동의 → 그 액션 채택.
+2. 4명 중 2명 이하만 NON-MAINTAIN 동의 → MAINTAIN.
+3. 의견이 갈리면 MAINTAIN.
+4. 전체 신뢰도(confidence) 평균이 6 이하면 MAINTAIN (확신 부족).
+5. 어떤 에이전트도 STOP에 가중치를 받지 않음 (모든 에이전트 동등).
+
+【STOP 보호 장치 — 누구든 한 명이라도 만족 안 하면 STOP 금지】
+STOP을 채택하려면 다음을 모두 만족해야 합니다:
+- 4명 중 4명 전원이 STOP 동의 (만장일치).
+- 모든 에이전트의 STOP 신뢰도가 8/10 이상.
+- 사유에 "시스템적 시장 붕괴", "거래소 장애", "ADX 35+ 영구 추세 전환" 중 하나 이상 포함.
+위 조건 미충족이면 STOP 후보가 있어도 SHIFT/WIDEN 또는 MAINTAIN으로 강등하세요.
+
+【수수료/안전 가드】
+6. 예상 재시작 수수료 > 당일 실현 수익의 50% → WIDEN/SHIFT 대신 MAINTAIN.
+7. 최근 1시간 내 그리드 재시작 2회 이상 → WIDEN/SHIFT 금지 (MAINTAIN 강제).
+
+【이탈 대응 (MAINTAIN을 깨는 거의 유일한 정상 사유)】
+8. 컨텍스트에 `=== 그리드 이탈 상황 ===`이 있고 이탈 24h+ → MAINTAIN 대신 WIDEN/SHIFT 다수결 채택.
+9. 이탈 48h+ + ADX≥20 + 수수료 가드 통과 → WIDEN 적극 채택.
 
 반드시 아래 JSON 형식으로만 응답:
 {"action": "ACTION", "reasoning": "합의 도출 이유 한줄"}"""
@@ -273,19 +343,29 @@ class MultiAgentJudge:
         prompt = f"""{context}
 
 다음 액션 중 하나를 선택하고 신뢰도(1~10)와 이유를 답하세요:
-- MAINTAIN: 현재 그리드 유지
-- WIDEN: 그리드 간격 확대 (수수료 발생)
-- SHIFT_UP: 그리드를 위로 이동 (수수료 발생)
-- SHIFT_DOWN: 그리드를 아래로 이동 (수수료 발생)
-- STOP: 전체 청산 (극단적 상황에서만)
+- MAINTAIN: 현재 그리드 유지 (디폴트, 모호하면 이걸로)
+- WIDEN: 그리드 간격 확대 (재시작 → 수수료 발생)
+- SHIFT_UP: 그리드를 위로 이동 (재시작 → 수수료 발생)
+- SHIFT_DOWN: 그리드를 아래로 이동 (재시작 → 수수료 발생)
+- STOP: 봇 종료 + 자산 청산 (시스템적 시장 붕괴 한정 — 일반적으로 답이 아님)
 
-판단 가이드라인:
-- 컨텍스트에 `=== 그리드 이탈 상황 ===`이 있으면 이탈 기간을 최우선 고려하세요.
-  * 이탈 24h 미만: MAINTAIN 선호
-  * 이탈 24~48h + 추세 확인(ADX≥20): WIDEN 또는 SHIFT 권고
-  * 이탈 48h 이상: WIDEN 강력 권고 (복귀 가능성 낮음, 현금 놀림 손실 > 수수료)
-- 이탈 상황이 아니면 리스크 스코어와 추세 강도 기반으로 판단.
-- 수수료가 예상 수익을 크게 초과하면 MAINTAIN.
+【판단 가이드라인 — 그리드봇 운영자 관점】
+1. 디폴트는 MAINTAIN. 액션 변경에는 명확한 객관적 증거가 필요합니다.
+2. 가격이 그리드 경계 80% 도달 → 그건 "체결 자리"이지 위험이 아닙니다. MAINTAIN.
+3. 단발성 spike (1분봉 wick, score 일시 급등) → 무시. MAINTAIN.
+4. 이탈 상황 (`=== 그리드 이탈 상황 ===`):
+   * 이탈 24h 미만: MAINTAIN (복귀 대기).
+   * 이탈 24~48h + ADX≥20: WIDEN 또는 SHIFT 권고.
+   * 이탈 48h 이상: WIDEN 강력 권고 (복귀 가능성 낮음, 기회비용 > 수수료).
+5. 수수료/손익 컨텍스트 확인. 예상 수수료 > 일일 수익의 50% → MAINTAIN.
+
+【STOP 사용 제한】
+STOP은 다음 중 하나여야만 후보가 됩니다:
+- 1시간 내 시장 ±20% 폭락 같은 시스템적 붕괴.
+- ADX 35+ 영구 추세 전환이 명백한 경우.
+- 거래소 장애/디레버리지 같은 외부 사건.
+"위험해 보여서", "안전하게", "보수적으로" 같은 정성적 사유로 STOP을 권고하지 마세요.
+STOP 권고 시 신뢰도는 8 이상이어야 하며, 사유에 위 시스템 위험을 명시해야 합니다.
 
 반드시 아래 JSON 형식으로만 응답:
 {{"action": "ACTION", "confidence": 숫자, "reason": "이유 한줄"}}"""
@@ -298,7 +378,7 @@ class MultiAgentJudge:
             return None
 
     def _coordinate(self, opinions: list, context: str) -> tuple:
-        """조율자가 최종 합의를 도출."""
+        """조율자가 최종 합의를 도출. STOP 가드는 코드로 강제."""
         opinions_text = "\n".join([
             f"- {o.role}: {o.action} (신뢰도 {o.confidence}/10) — {o.reason}"
             for o in opinions
@@ -318,18 +398,55 @@ class MultiAgentJudge:
             reasoning = data.get("reasoning", "")
             if action not in VALID_ACTIONS:
                 action = "MAINTAIN"
-            return action, reasoning
         except Exception as e:
-            # 조율자 실패 시 다수결 폴백
-            return self._majority_vote(opinions), f"조율자 실패, 다수결 적용: {e}"
+            # 조율자 실패 → 다수결 폴백
+            action = self._majority_vote(opinions)
+            reasoning = f"조율자 실패, 다수결 적용: {e}"
+
+        # ─── STOP 보호 장치 (코드 레벨 강제) ───
+        # LLM이 STOP을 답해도 다음 조건을 모두 만족 안 하면 강등:
+        #  - 4명 만장일치 STOP
+        #  - 모든 STOP 의견 신뢰도 8 이상
+        if action == "STOP":
+            stop_opinions = [o for o in opinions if o.action == "STOP"]
+            unanimous = len(stop_opinions) == len(opinions) and len(opinions) > 0
+            high_conf = all(o.confidence >= 8 for o in stop_opinions) if stop_opinions else False
+            if not (unanimous and high_conf):
+                downgraded = self._fallback_non_stop(opinions)
+                reasoning = (
+                    f"STOP 보호 장치 발동 (만장일치={unanimous}, "
+                    f"전원 신뢰도≥8={high_conf}) → {downgraded}로 강등. "
+                    f"원래 사유: {reasoning}"
+                )
+                action = downgraded
+
+        return action, reasoning
+
+    def _fallback_non_stop(self, opinions: list) -> str:
+        """STOP 강등 시 차선 액션 — STOP 제외 다수결, 동률이면 MAINTAIN."""
+        non_stop = [o for o in opinions if o.action != "STOP"]
+        if not non_stop:
+            return "MAINTAIN"
+        counts = {}
+        for o in non_stop:
+            counts[o.action] = counts.get(o.action, 0) + 1
+        max_count = max(counts.values())
+        candidates = [a for a, c in counts.items() if c == max_count]
+        # 동률이면 MAINTAIN 우선 (그리드봇 헌법 ②: 모호하면 MAINTAIN)
+        priority = {"MAINTAIN": 0, "WIDEN": 1, "SHIFT_UP": 2, "SHIFT_DOWN": 3}
+        candidates.sort(key=lambda a: priority.get(a, 99))
+        return candidates[0]
 
     def _majority_vote(self, opinions: list) -> str:
-        """폴백: 단순 다수결 (동률 시 방어적 액션 우선)."""
+        """폴백: 단순 다수결 (동률 시 MAINTAIN 우선 — 그리드봇 헌법 ②)."""
         if not opinions:
             return "MAINTAIN"
 
-        priority = {"STOP": 0, "WIDEN": 1,
-                     "SHIFT_DOWN": 4, "SHIFT_UP": 5, "MAINTAIN": 6}
+        # 그리드봇 헌법 ②: 디폴트는 MAINTAIN. 동률 시 MAINTAIN 우선.
+        # STOP은 만장일치 + 신뢰도 8+ 가드를 _coordinate에서 별도 적용하므로
+        # 여기서는 우선순위만 가장 낮게 둔다 (선택돼도 강등됨).
+        priority = {"MAINTAIN": 0, "WIDEN": 1, "SHIFT_UP": 2,
+                    "SHIFT_DOWN": 3, "STOP": 4}
 
         counts = {}
         for o in opinions:
@@ -338,7 +455,7 @@ class MultiAgentJudge:
         max_count = max(counts.values())
         candidates = [a for a, c in counts.items() if c == max_count]
 
-        # 동률이면 더 방어적인 액션
+        # 동률이면 MAINTAIN 우선 (변경의 입증 책임은 변경하는 쪽)
         candidates.sort(key=lambda a: priority.get(a, 99))
         return candidates[0]
 
@@ -417,10 +534,17 @@ class MultiAgentJudge:
         )
 
 
-def format_consensus_for_telegram(result: ConsensusResult) -> str:
-    """텔레그램 알림용 합의 결과 포맷."""
+def format_consensus_for_telegram(result: ConsensusResult,
+                                  bot_label: str = "") -> str:
+    """텔레그램 알림용 합의 결과 포맷.
+
+    bot_label이 주어지면 멀티봇 환경에서 어느 봇 합의인지 식별 가능하게
+    헤더에 봇 라벨을 표시한다 (Notifier도 메시지 전체에 prefix 추가하지만,
+    합의 결과는 핵심 메시지라 헤더에서 한 번 더 노출한다).
+    """
+    label_part = f" [{bot_label}]" if bot_label else ""
     lines = [
-        f"🤖 멀티 에이전트 합의",
+        f"🤖 멀티 에이전트 합의{label_part}",
         f"{'─' * 28}",
         f"최종 결정: {result.final_action}",
         f"합의율: {result.agreement_rate:.0f}%",
