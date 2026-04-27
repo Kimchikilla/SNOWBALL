@@ -775,7 +775,8 @@ class GridAgent:
                     f"(동의율={result.agreement_rate:.0f}%, score={score})"
                 )
                 self.notifier.send(format_consensus_for_telegram(result, bot_label=self.bot_label))
-                self.cost_guard.post_success(signal, result.final_action, num_calls=5)
+                # 2명 에이전트 + 코디네이터 = 3 호출 (4 체제에서 5 호출 → 60% 절감)
+                self.cost_guard.post_success(signal, result.final_action, num_calls=3)
                 action = result.final_action
             else:
                 action = self.llm_judge.judge(
