@@ -19,6 +19,15 @@ src/agent_state.json.tmp
 agent_state.json
 agent_state.json.tmp
 
+# OKX 거래 식별자 / 원시 응답 덤프 (algoId / ordId / billId / clOrdId 노출 방지)
+bills.json
+bills.*.json
+sub_orders*.json
+grid_orders*.json
+fills*.json
+orders*.json
+*.okx.json
+
 # IDE / Editor
 .idea/
 .vscode/
