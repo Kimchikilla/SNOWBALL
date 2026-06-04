@@ -74,6 +74,20 @@ class QueryFailGridController(FakeGridController):
         return super().start_grid(lower, upper, count, mode)
 
 
+class CaptureStopGridController(GridController):
+    def __init__(self):
+        self.bot_id = "bot"
+        self.stop_body = None
+
+    def _post(self, path, body):
+        self.stop_path = path
+        self.stop_body = body
+        return {"code": "0"}
+
+    def _log(self, msg, level="INFO"):
+        pass
+
+
 def make_agent():
     agent = object.__new__(GridAgent)
     agent.holding_qty = 0.0
@@ -182,6 +196,16 @@ class RiskControlTests(unittest.TestCase):
 
         self.assertFalse(controller.start_called)
         self.assertEqual(result["status"], "sync_failed")
+
+    def test_stop_grid_stop_type_sells_only_when_requested(self):
+        sell_controller = CaptureStopGridController()
+        keep_controller = CaptureStopGridController()
+
+        sell_controller.stop_grid(sell_remaining=True)
+        keep_controller.stop_grid(sell_remaining=False)
+
+        self.assertEqual(sell_controller.stop_body[0]["stopType"], "1")
+        self.assertEqual(keep_controller.stop_body[0]["stopType"], "2")
 
     def test_restart_guard_blocks_widen_when_losing_without_realized_edge(self):
         agent = make_agent()
