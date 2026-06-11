@@ -502,7 +502,23 @@ class GridAgent:
             print(f"{RED}{BOLD}  ❌ 그리드봇 시작 실패{RESET}")
             print(f"{RED}{'═' * 56}{RESET}")
 
-            if "Insufficient balance" in str(error_msg):
+            if resp.get("status") == "insufficient_balance":
+                avail = resp.get("available", 0.0)
+                required = resp.get("required", config.GRID_BUDGET)
+                print(f"{RED}  원인: 잔고 부족{RESET}")
+                print(f"{RED}  가용 USDT : {avail:>14,.2f}{RESET}")
+                print(f"{RED}  필요 예산 : {required:>14,.2f} (GRID_BUDGET){RESET}")
+                print(f"{RED}  부족분    : {required - avail:>14,.2f}{RESET}")
+                print()
+                print(f"  💡 해결 방법:")
+                if config.DEMO_MODE:
+                    print(f"     1. OKX 데모 계정에 USDT를 충전하세요")
+                    print(f"        (okx.com → 데모 트레이딩 → 자산 → 충전)")
+                    print(f"     2. 또는 설정 → 거래 설정에서 예산을 {avail:,.0f} USDT 이하로 줄여주세요")
+                else:
+                    print(f"     1. OKX 계정에 충분한 USDT를 입금하세요")
+                    print(f"     2. 또는 설정 → 거래 설정에서 예산을 줄여주세요")
+            elif "Insufficient balance" in str(error_msg):
                 print(f"{RED}  원인: 잔고 부족 (Insufficient balance){RESET}")
                 print(f"{RED}  현재 설정 예산: {config.GRID_BUDGET} USDT{RESET}")
                 print()
@@ -2542,8 +2558,8 @@ if __name__ == "__main__":
 
     if result == "start":
         clear()
-        # 메뉴에서 설정 변경했을 수 있으므로 config 모듈 다시 로드
-        import importlib
-        import config
-        importlib.reload(config)
+        # 메뉴에서 설정 변경했을 수 있으므로 .env를 강제 재로드.
+        # (단순 importlib.reload는 os.environ에 남은 첫 로드 값 때문에
+        #  새 .env 값이 반영되지 않는다 — config.reload()가 override 처리)
+        config.reload()
         GridAgent().run()

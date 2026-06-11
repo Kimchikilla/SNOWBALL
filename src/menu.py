@@ -141,6 +141,197 @@ def is_configured() -> bool:
     return bool(env.get("OKX_API_KEY") and env.get("LLM_API_KEY"))
 
 
+# ─── OKX 조회 헬퍼 (메뉴 전용 — env dict의 최신 키 사용) ──────
+# config 모듈은 임포트 시점 값이라, 메뉴에서 방금 입력한 키를 쓰려면
+# env dict 기반으로 직접 서명해야 한다.
+
+def _okx_signed_get(env: dict, path: str, params: dict = None) -> dict | None:
+    """OKX private GET. 키 미설정/실패 시 None."""
+    import hmac
+    import hashlib
+    import base64
+    from datetime import datetime, timezone
+
+    api_key = env.get("OKX_API_KEY", "")
+    secret = env.get("OKX_SECRET_KEY", "")
+    passphrase = env.get("OKX_PASSPHRASE", "")
+    if not (api_key and secret and passphrase):
+        return None
+
+    query = ""
+    if params:
+        query = "?" + "&".join(f"{k}={v}" for k, v in params.items())
+
+    now = datetime.now(timezone.utc)
+    ts = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+    msg = ts + "GET" + path + query
+    sign = base64.b64encode(
+        hmac.new(secret.encode(), msg.encode(), hashlib.sha256).digest()
+    ).decode()
+
+    headers = {
+        "OK-ACCESS-KEY": api_key,
+        "OK-ACCESS-SIGN": sign,
+        "OK-ACCESS-TIMESTAMP": ts,
+        "OK-ACCESS-PASSPHRASE": passphrase,
+        "Accept": "application/json",
+    }
+    if env.get("DEMO_MODE", "true") == "true":
+        headers["x-simulated-trading"] = "1"
+
+    try:
+        base_url = env.get("OKX_BASE_URL", "https://www.okx.com")
+        resp = httpx.get(base_url + path + query, headers=headers, timeout=10)
+        return resp.json()
+    except Exception:
+        return None
+
+
+def fetch_balances(env: dict) -> dict | None:
+    """계좌 잔고 조회. {ccy: {"available": x, "eq_usd": y}} 또는 None."""
+    resp = _okx_signed_get(env, "/api/v5/account/balance")
+    if not resp or resp.get("code") != "0" or not resp.get("data"):
+        return None
+    try:
+        details = resp["data"][0].get("details", [])
+        balances = {}
+        for d in details:
+            if not isinstance(d, dict):
+                continue
+            avail = float(d.get("availBal") or 0)
+            total = float(d.get("cashBal") or 0)
+            eq_usd = float(d.get("eqUsd") or 0)
+            if total > 0 or avail > 0:
+                balances[d.get("ccy", "?")] = {
+                    "available": avail, "total": total, "eq_usd": eq_usd,
+                }
+        return balances
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
+def fetch_active_bots(env: dict) -> list[dict] | None:
+    """활성 그리드봇 리스트. 실패 시 None."""
+    resp = _okx_signed_get(
+        env, "/api/v5/tradingBot/grid/orders-algo-pending",
+        params={"algoOrdType": "grid", "instType": "SPOT"},
+    )
+    if not resp or resp.get("code") != "0":
+        return None
+    bots = resp.get("data", [])
+    return [b for b in bots if isinstance(b, dict)] if isinstance(bots, list) else []
+
+
+def fetch_price(symbol: str) -> float | None:
+    """현재가 조회 (public)."""
+    try:
+        resp = httpx.get(
+            "https://www.okx.com/api/v5/market/ticker",
+            params={"instId": symbol}, timeout=10,
+        )
+        return float(resp.json()["data"][0]["last"])
+    except Exception:
+        return None
+
+
+# ─── 그리드 설정 검증 (AI 추천/수동 입력 공통) ──────────────
+
+#: 그리드 라인당 최소 주문 금액 (USDT). 이보다 작으면 수수료에 잠식된다.
+MIN_PER_GRID_USDT = 10.0
+#: 그리드 예산의 총예산 대비 허용 범위
+GRID_BUDGET_MIN_PCT = 0.1
+GRID_BUDGET_MAX_PCT = 0.7
+
+
+def validate_grid_settings(total_budget: float, raw: dict,
+                           current_price: float) -> tuple[dict, list[str]]:
+    """그리드 설정값 검증·교정.
+
+    LLM 추천이든 수동 입력이든 같은 규칙을 통과시킨다 (2026-06 교훈:
+    추천값을 무검증 저장하면 현재가가 범위 밖이거나 예산이 잔고를
+    초과해도 그대로 봇 시작을 시도한다).
+
+    Returns: (교정된 설정 dict, 경고 메시지 리스트)
+    """
+    warnings = []
+
+    def _f(key, default=0.0):
+        try:
+            return float(raw.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    total = max(float(total_budget), 0.0)
+    grid_budget = _f("grid_budget", total * 0.4)
+
+    # 1) 그리드 예산: 총예산의 10~70%로 클램프, 예비 자금은 코드가 재계산
+    lo, hi = total * GRID_BUDGET_MIN_PCT, total * GRID_BUDGET_MAX_PCT
+    if grid_budget > hi:
+        warnings.append(f"그리드 예산 {grid_budget:,.0f} → {hi:,.0f} (총예산의 70% 상한)")
+        grid_budget = hi
+    elif grid_budget < lo:
+        warnings.append(f"그리드 예산 {grid_budget:,.0f} → {lo:,.0f} (총예산의 10% 하한)")
+        grid_budget = lo
+    reserve = round(total - grid_budget, 2)
+
+    # 2) 범위: 양수 + 상단>하단 + 현재가 포함. 위반 시 현재가 중심으로 재배치
+    lower = _f("grid_lower")
+    upper = _f("grid_upper")
+    if lower <= 0 or upper <= lower:
+        lower = current_price * 0.88
+        upper = current_price * 1.12
+        warnings.append(f"범위가 유효하지 않아 현재가 ±12%로 재설정 ({lower:,.0f}~{upper:,.0f})")
+    elif not (lower < current_price < upper):
+        width = upper - lower
+        lower = current_price - width / 2
+        upper = current_price + width / 2
+        if lower <= 0:
+            lower = current_price * 0.88
+            upper = current_price * 1.12
+        warnings.append(
+            f"현재가 {current_price:,.0f}가 범위 밖이라 같은 폭으로 재중심 "
+            f"({lower:,.0f}~{upper:,.0f})"
+        )
+
+    # 3) 개수: 2~50 + 라인당 최소 주문 금액 보장
+    try:
+        count = int(raw.get("grid_count", 10))
+    except (TypeError, ValueError):
+        count = 10
+    count = max(2, min(count, 50))
+    if grid_budget > 0 and grid_budget / count < MIN_PER_GRID_USDT:
+        new_count = max(int(grid_budget // MIN_PER_GRID_USDT), 2)
+        warnings.append(
+            f"그리드당 주문액 {grid_budget / count:,.1f} USDT < 최소 "
+            f"{MIN_PER_GRID_USDT:,.0f} → 개수 {count} → {new_count}"
+        )
+        count = new_count
+
+    # 4) 모드
+    mode = str(raw.get("grid_mode", "arithmetic")).lower()
+    if mode not in ("arithmetic", "geometric"):
+        mode = "arithmetic"
+
+    # 5) 간격이 수수료 대비 너무 좁으면 경고 (왕복 수수료 ~0.2%)
+    spacing_pct = (upper - lower) / count / current_price * 100 if current_price > 0 else 0
+    if 0 < spacing_pct < 0.3:
+        warnings.append(
+            f"그리드 간격 {spacing_pct:.2f}%는 왕복 수수료(~0.2%) 대비 너무 좁음 — "
+            f"개수를 줄이거나 범위를 넓히는 것을 권장"
+        )
+
+    return {
+        "grid_budget": round(grid_budget, 2),
+        "reserve_budget": reserve,
+        "grid_lower": round(lower, 2),
+        "grid_upper": round(upper, 2),
+        "grid_count": count,
+        "grid_mode": mode,
+        "per_grid_usdt": round(grid_budget / count, 2) if count else 0.0,
+        "spacing_pct": round(spacing_pct, 3),
+    }, warnings
+
+
 # ─── 초기 설정 위자드 ──────────────────────────────────────
 
 def initial_setup_wizard():
@@ -225,15 +416,29 @@ def main_menu():
         while True:
             header()
             print_disclaimer()
+            env = load_env()
             configured = is_configured()
             status = "✅ 설정 완료" if configured else "❌ 설정 필요"
-            print(f"  상태: {status}\n")
+            print(f"  상태: {status}")
+
+            # 핵심 설정 한눈에 — 어떤 값으로 시작될지 메뉴에서 바로 보이게
+            if configured:
+                mode = "Demo" if env.get("DEMO_MODE", "true") == "true" else "⚠ Live"
+                grid_range = f"{env.get('GRID_LOWER', '?')}~{env.get('GRID_UPPER', '?')}"
+                print(
+                    f"  {env.get('SYMBOL', '?')} | {mode} | "
+                    f"그리드 {grid_range} × {env.get('GRID_COUNT', '?')} "
+                    f"({env.get('GRID_MODE', '?')}) | "
+                    f"예산 {env.get('GRID_BUDGET', '?')}/{env.get('TOTAL_BUDGET', '?')} USDT"
+                )
+            print()
 
             try:
                 action = questionary.select(
                     "메뉴 선택",
                     choices=[
                         Choice("🚀 에이전트 시작", value="start"),
+                        Choice("📊 잔고/봇 현황", value="status"),
                         Choice("⚙️  설정", value="settings"),
                         Choice("📋 현재 설정 보기", value="view"),
                         Choice("🚪 종료", value="quit"),
@@ -255,6 +460,9 @@ def main_menu():
                     pause()
                     continue
                 return "start"
+
+            if action == "status":
+                view_account_status()
 
             if action == "settings":
                 settings_menu()
@@ -285,6 +493,7 @@ def settings_menu():
                     Choice(f"{okx} OKX API", value="okx"),
                     Choice(f"{okx} 거래 설정", value="trading"),
                     Choice(f"{llm} LLM 설정", value="llm"),
+                    Choice("🛡️  리스크 관리", value="risk"),
                     Choice(f"{tg} 텔레그램 알림", value="telegram"),
                     Choice("⬜ 고급 설정", value="advanced"),
                     questionary.Separator(),
@@ -305,6 +514,8 @@ def settings_menu():
             setup_trading(env)
         elif action == "llm":
             setup_llm(env)
+        elif action == "risk":
+            setup_risk(env)
         elif action == "telegram":
             setup_telegram(env)
         elif action == "advanced":
@@ -371,19 +582,59 @@ def setup_okx(env: dict):
 
 # ─── 거래 설정 ───────────────────────────────────────────
 
+def _apply_grid_settings(env: dict, total_budget: float, settings: dict):
+    """검증된 설정을 env에 반영. RESERVE는 항상 코드가 재계산 (정합성 보장)."""
+    env["TOTAL_BUDGET"] = str(round(total_budget, 2))
+    env["GRID_BUDGET"] = str(settings["grid_budget"])
+    env["RESERVE_BUDGET"] = str(round(total_budget - settings["grid_budget"], 2))
+    env["GRID_LOWER"] = str(settings["grid_lower"])
+    env["GRID_UPPER"] = str(settings["grid_upper"])
+    env["GRID_COUNT"] = str(settings["grid_count"])
+    env["GRID_MODE"] = settings["grid_mode"]
+
+
+def _print_grid_summary(settings: dict, total_budget: float,
+                        current_price: float, warnings: list[str],
+                        title: str = "그리드 설정"):
+    """검증된 그리드 설정 요약 박스 출력."""
+    W = 46
+    grid_budget = settings["grid_budget"]
+    reserve = round(total_budget - grid_budget, 2)
+    grid_pct = grid_budget / total_budget * 100 if total_budget > 0 else 0
+
+    print()
+    print(f"  ┌{'─' * W}┐")
+    print(_box_line(title, W))
+    print(f"  ├{'─' * W}┤")
+    print(_box_line(f"그리드 예산 : {grid_budget:>12,.0f} USDT ({grid_pct:.0f}%)", W))
+    print(_box_line(f"예비 자금   : {reserve:>12,.0f} USDT ({100 - grid_pct:.0f}%)", W))
+    print(f"  ├{'─' * W}┤")
+    print(_box_line(f"현재가      : {current_price:>15,.2f} USDT", W))
+    print(_box_line(f"하단 가격   : {settings['grid_lower']:>15,.2f} USDT", W))
+    print(_box_line(f"상단 가격   : {settings['grid_upper']:>15,.2f} USDT", W))
+    print(_box_line(f"그리드 개수 : {settings['grid_count']:>15} 개", W))
+    print(_box_line(f"라인당 주문 : {settings['per_grid_usdt']:>15,.2f} USDT", W))
+    print(_box_line(f"간격        : {settings['spacing_pct']:>14,.2f} %", W))
+    print(_box_line(f"모드        : {settings['grid_mode']:>15}", W))
+    print(f"  └{'─' * W}┘")
+    if warnings:
+        print()
+        for w in warnings:
+            print(f"  ⚠ {_vtrunc(w, 70) if _vw(w) > 70 else w}")
+    print()
+
+
 def setup_trading(env: dict):
     header("거래 설정")
 
+    # ── 1) 심볼 선택 ──
+    symbols = ["BTC-USDT", "ETH-USDT", "SOL-USDT", "XRP-USDT"]
+    current_symbol = env.get("SYMBOL", "ETH-USDT")
     try:
         symbol = questionary.select(
             "거래 심볼",
-            choices=[
-                Choice("BTC-USDT", value="BTC-USDT"),
-                Choice("ETH-USDT", value="ETH-USDT"),
-                Choice("SOL-USDT", value="SOL-USDT"),
-                Choice("XRP-USDT", value="XRP-USDT"),
-            ],
-            default="BTC-USDT",
+            choices=[Choice(s, value=s) for s in symbols],
+            default=current_symbol if current_symbol in symbols else None,
             style=STYLE,
         ).ask()
     except (KeyboardInterrupt, EOFError):
@@ -392,101 +643,133 @@ def setup_trading(env: dict):
         return
     env["SYMBOL"] = symbol
 
+    # ── 2) 현재가 + 잔고 조회 (예산 입력의 기준점) ──
+    print("\n  🔍 현재가/잔고 조회 중...")
+    price = fetch_price(symbol)
+    balances = fetch_balances(env)
+    quote_ccy = symbol.split("-")[1] if "-" in symbol else "USDT"
+    avail = None
+
+    if price:
+        print(f"  현재가: {price:,.2f} USDT")
+    else:
+        print("  ⚠ 현재가 조회 실패 — 범위 자동 검증이 제한됩니다.")
+    if balances is not None:
+        avail = balances.get(quote_ccy, {}).get("available", 0.0)
+        mode_label = "Demo" if env.get("DEMO_MODE", "true") == "true" else "Live"
+        print(f"  {mode_label} 계좌 가용 {quote_ccy}: {avail:,.2f}")
+    else:
+        print("  ⚠ 잔고 조회 실패 (API 키 확인) — 예산을 잔고와 대조할 수 없습니다.")
+
+    # ── 3) 총 예산 입력 (기본값: 기존 설정 또는 가용 잔고) ──
+    if env.get("TOTAL_BUDGET"):
+        default_budget = env["TOTAL_BUDGET"]
+    elif avail and avail > 0:
+        default_budget = str(int(avail))
+    else:
+        default_budget = "1000"
+
     try:
-        budget = questionary.text(
-            "총 예산 (USDT):",
-            default=env.get("TOTAL_BUDGET", "1000"),
-            validate=lambda v: True if _is_number(v) else "숫자를 입력해주세요",
+        budget_str = questionary.text(
+            f"총 예산 ({quote_ccy}):",
+            default=default_budget,
+            validate=lambda v: True if _is_number(v) and float(v) > 0 else "양수를 입력해주세요",
             style=STYLE,
         ).ask()
     except (KeyboardInterrupt, EOFError):
         return
-    if budget is None:
+    if budget_str is None:
         return
-    env["TOTAL_BUDGET"] = budget
+    total_budget = float(budget_str)
 
-    # AI 자동 추천 (예산 배분 + 그리드 범위 모두 LLM이 결정)
+    # 잔고 초과 검증 — 그대로 두면 봇 시작 시 Insufficient balance로 죽는다
+    if avail is not None and total_budget > avail:
+        print(f"\n  ⚠ 총 예산 {total_budget:,.0f}이 가용 잔고 {avail:,.2f}를 초과합니다.")
+        try:
+            shrink = questionary.confirm(
+                f"예산을 가용 잔고({int(avail):,})로 맞출까요? (아니오 = 입력값 유지)",
+                default=True,
+                style=STYLE,
+            ).ask()
+        except (KeyboardInterrupt, EOFError):
+            return
+        if shrink:
+            total_budget = float(int(avail))
+
+    if price is None:
+        # 현재가 없이는 범위 검증 불가 → 조회 재시도 후에도 없으면 중단
+        price = fetch_price(symbol)
+        if price is None:
+            print("\n  ❌ 현재가를 조회할 수 없어 설정을 진행할 수 없습니다. 네트워크 확인 후 재시도해주세요.")
+            pause()
+            return
+
+    # ── 4) AI 자동 추천 (검증 통과한 값만 저장) ──
     print("\n  🤖 AI가 시세를 분석하고 최적 설정을 추천합니다...")
-    auto_result = _auto_grid_settings(env, symbol, float(budget))
-    if auto_result:
-        env.update(auto_result)
+    auto = _auto_grid_settings(env, symbol, total_budget, price)
+    if auto:
+        _apply_grid_settings(env, total_budget, auto)
         save_env(env)
         print("\n  ✅ AI 추천 설정 저장 완료")
         pause()
         return
 
-    # AI 추천 실패 시 수동 입력 폴백
-    print("\n  ⚠ AI 추천 실패. 수동 입력으로 전환합니다.")
+    # ── 5) 수동 입력 폴백 (같은 검증 통과) ──
+    print("\n  ⚠ AI 추천을 사용하지 않습니다. 수동 입력으로 전환합니다.")
     print()
 
-    try:
-        grid_budget = questionary.text(
-            "그리드 예산 (USDT):",
-            default=env.get("GRID_BUDGET", str(int(float(budget) * 0.4))),
-            validate=lambda v: True if _is_number(v) else "숫자를 입력해주세요",
-            style=STYLE,
-        ).ask()
-    except (KeyboardInterrupt, EOFError):
-        return
-    if grid_budget is None:
-        return
-    env["GRID_BUDGET"] = grid_budget
-    env["RESERVE_BUDGET"] = str(round(float(budget) - float(grid_budget), 2))
+    raw = {}
+    prompts = [
+        ("grid_budget", f"그리드 예산 ({quote_ccy}):",
+         env.get("GRID_BUDGET", str(int(total_budget * 0.4))), _is_number),
+        ("grid_lower", "그리드 하단 가격:",
+         env.get("GRID_LOWER", str(round(price * 0.88, 2))), _is_number),
+        ("grid_upper", "그리드 상단 가격:",
+         env.get("GRID_UPPER", str(round(price * 1.12, 2))), _is_number),
+        ("grid_count", "그리드 개수:",
+         env.get("GRID_COUNT", "10"), _is_int),
+    ]
+    for key, label, default, validator in prompts:
+        try:
+            value = questionary.text(
+                label, default=default,
+                validate=lambda v, _f=validator: True if _f(v) else "숫자를 입력해주세요",
+                style=STYLE,
+            ).ask()
+        except (KeyboardInterrupt, EOFError):
+            return
+        if value is None:
+            return
+        raw[key] = value
 
     try:
-        lower = questionary.text(
-            "그리드 하단 가격:",
-            default=env.get("GRID_LOWER", "90000"),
-            validate=lambda v: True if _is_number(v) else "숫자를 입력해주세요",
-            style=STYLE,
-        ).ask()
-    except (KeyboardInterrupt, EOFError):
-        return
-    if lower is None:
-        return
-    env["GRID_LOWER"] = lower
-
-    try:
-        upper = questionary.text(
-            "그리드 상단 가격:",
-            default=env.get("GRID_UPPER", "110000"),
-            validate=lambda v: True if _is_number(v) else "숫자를 입력해주세요",
-            style=STYLE,
-        ).ask()
-    except (KeyboardInterrupt, EOFError):
-        return
-    if upper is None:
-        return
-    env["GRID_UPPER"] = upper
-
-    try:
-        count = questionary.text(
-            "그리드 개수:",
-            default=env.get("GRID_COUNT", "20"),
-            validate=lambda v: True if _is_int(v) else "정수를 입력해주세요",
-            style=STYLE,
-        ).ask()
-    except (KeyboardInterrupt, EOFError):
-        return
-    if count is None:
-        return
-    env["GRID_COUNT"] = count
-
-    try:
-        mode = questionary.select(
+        raw["grid_mode"] = questionary.select(
             "그리드 모드",
             choices=[
                 Choice("Arithmetic (등차)", value="arithmetic"),
                 Choice("Geometric (등비)", value="geometric"),
             ],
+            default=env.get("GRID_MODE", "arithmetic"),
             style=STYLE,
         ).ask()
     except (KeyboardInterrupt, EOFError):
         return
-    if mode is None:
+    if raw["grid_mode"] is None:
         return
-    env["GRID_MODE"] = mode
 
+    settings, warnings = validate_grid_settings(total_budget, raw, price)
+    _print_grid_summary(settings, total_budget, price, warnings, title="설정 확인 (검증 반영)")
+
+    try:
+        accept = questionary.confirm("이대로 저장할까요?", default=True, style=STYLE).ask()
+    except (KeyboardInterrupt, EOFError):
+        return
+    if not accept:
+        print("\n  ⚠ 저장하지 않았습니다.")
+        pause()
+        return
+
+    _apply_grid_settings(env, total_budget, settings)
     save_env(env)
     print("\n  ✅ 거래 설정 저장 완료")
     pause()
@@ -590,9 +873,11 @@ def _call_llm_for_grid(env: dict, market: dict, budget: float) -> dict:
 - grid_budget: 그리드에 투입할 금액 (총 예산의 30~70%, 변동성 높으면 비율 낮게)
 - reserve_budget: 나머지는 예비 자금 (급락 시 추가 매수, 리밸런싱용)
 - 그리드 하단/상단은 30일 범위와 현재 변동성을 고려해서 설정
+- **현재가가 반드시 하단과 상단 사이에 있어야 함**
 - 너무 좁으면 수익 기회 적고, 너무 넓으면 자금 효율 떨어짐
 - 변동성 높으면 간격 넓게, 낮으면 좁게
-- 그리드 개수는 15~30 사이 추천
+- 그리드 개수는 8~20 사이 추천. 간격은 왕복 수수료(~0.2%)의 5배 이상 (≥1%) 권장
+- grid_budget ÷ 그리드 개수 ≥ 10 USDT (라인당 최소 주문액)
 - arithmetic vs geometric: 가격대가 높고 변동 큰 자산은 geometric 추천
 
 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트 없이 JSON만:
@@ -659,8 +944,12 @@ def _call_llm_for_grid(env: dict, market: dict, budget: float) -> dict:
         return {}
 
 
-def _auto_grid_settings(env: dict, symbol: str, budget: float) -> dict:
-    """시세 조회 → LLM 추천 → 사용자 확인."""
+def _auto_grid_settings(env: dict, symbol: str, budget: float,
+                        current_price: float) -> dict:
+    """시세 조회 → LLM 추천 → 코드 검증 → 사용자 확인.
+
+    Returns: validate_grid_settings()를 통과한 설정 dict, 또는 {} (실패/거절).
+    """
 
     if not env.get("LLM_API_KEY"):
         print("\n  ⚠ LLM API 키가 설정되지 않았습니다. 먼저 LLM 설정을 완료해주세요.")
@@ -677,7 +966,6 @@ def _auto_grid_settings(env: dict, symbol: str, budget: float) -> dict:
         print("  ⚠ 시세 데이터를 가져올 수 없습니다.")
         return {}
 
-    print(f"  현재가: {market['current_price']:,.2f} USDT")
     print(f"  24h 범위: {market['low_24h']:,.2f} ~ {market['high_24h']:,.2f}")
     print(f"  30일 범위: {market['month_low']:,.2f} ~ {market['month_high']:,.2f}")
     print(f"  일일 변동성: {market['daily_volatility_pct']:.2f}%")
@@ -688,38 +976,20 @@ def _auto_grid_settings(env: dict, symbol: str, budget: float) -> dict:
     if not result or "grid_lower" not in result:
         return {}
 
-    grid_budget = result.get("grid_budget", budget * 0.4)
-    reserve_budget = result.get("reserve_budget", budget - grid_budget)
-    lower = result["grid_lower"]
-    upper = result["grid_upper"]
-    count = result["grid_count"]
-    mode = result.get("grid_mode", "arithmetic")
-    reason = result.get("reason", "")
-    spread = (upper - lower) / count
-    grid_pct = grid_budget / budget * 100
+    # LLM 추천값을 무검증 저장하지 않는다 — 코드 규칙으로 교정 후 표시
+    settings, warnings = validate_grid_settings(budget, result, current_price)
+    reason = str(result.get("reason", ""))
 
-    W = 46
-    print()
-    print(f"  ┌{'─' * W}┐")
-    print(_box_line("AI 추천 설정", W))
-    print(f"  ├{'─' * W}┤")
-    print(_box_line(f"그리드 예산 : {grid_budget:>12,.0f} USDT ({grid_pct:.0f}%)", W))
-    print(_box_line(f"예비 자금   : {reserve_budget:>12,.0f} USDT ({100-grid_pct:.0f}%)", W))
-    print(f"  ├{'─' * W}┤")
-    print(_box_line(f"하단 가격   : {lower:>15,.2f} USDT", W))
-    print(_box_line(f"상단 가격   : {upper:>15,.2f} USDT", W))
-    print(_box_line(f"그리드 개수 : {count:>15} 개", W))
-    print(_box_line(f"그리드 간격 : {spread:>15,.2f} USDT", W))
-    print(_box_line(f"모드        : {mode:>15}", W))
-    print(f"  ├{'─' * W}┤")
-    reason_trunc = _vtrunc(reason, W - 6) if _vw(reason) > W - 6 else reason
-    print(_box_line(f"사유: {reason_trunc}", W))
-    print(f"  └{'─' * W}┘")
-    print()
+    _print_grid_summary(settings, budget, current_price, warnings,
+                        title="AI 추천 설정 (검증 반영)")
+    if reason:
+        reason_trunc = _vtrunc(reason, 70) if _vw(reason) > 70 else reason
+        print(f"  💡 추천 사유: {reason_trunc}")
+        print()
 
     try:
         accept = questionary.confirm(
-            "이 설정을 적용할까요?",
+            "이 설정을 적용할까요? (아니오 = 수동 입력)",
             default=True,
             style=STYLE,
         ).ask()
@@ -729,14 +999,7 @@ def _auto_grid_settings(env: dict, symbol: str, budget: float) -> dict:
     if not accept:
         return {}
 
-    return {
-        "GRID_BUDGET": str(round(grid_budget, 2)),
-        "RESERVE_BUDGET": str(round(reserve_budget, 2)),
-        "GRID_LOWER": str(lower),
-        "GRID_UPPER": str(upper),
-        "GRID_COUNT": str(count),
-        "GRID_MODE": mode,
-    }
+    return settings
 
 
 # ─── LLM 설정 ───────────────────────────────────────────
@@ -1075,6 +1338,92 @@ def _test_telegram(token: str, chat_id: str) -> tuple[bool, str]:
     return True, ""
 
 
+# ─── 리스크 관리 설정 ────────────────────────────────────
+
+def setup_risk(env: dict):
+    """레짐 필터 / 디리스킹 래더 / 헤지 설정 (2026-06-04 사고 사후 도입 장치)."""
+    header("리스크 관리 설정")
+    print("  추세 하락장에서 자동으로 작동하는 결정론적 안전장치입니다.")
+    print("  기본값은 2026-05 ETH 폭락 리플레이로 검증된 값입니다.")
+    print()
+
+    try:
+        regime = questionary.confirm(
+            "레짐 필터 사용 (일봉 추세 하락 자동 감지)",
+            default=env.get("REGIME_FILTER_ENABLED", "true") == "true",
+            style=STYLE,
+        ).ask()
+    except (KeyboardInterrupt, EOFError):
+        return
+    if regime is None:
+        return
+    env["REGIME_FILTER_ENABLED"] = "true" if regime else "false"
+
+    try:
+        hedge = questionary.confirm(
+            "선물 숏 헤지 사용 (추세 하락 시 재고 델타 중립화)",
+            default=env.get("HEDGE_ENABLED", "true") == "true",
+            style=STYLE,
+        ).ask()
+    except (KeyboardInterrupt, EOFError):
+        return
+    if hedge is None:
+        return
+    env["HEDGE_ENABLED"] = "true" if hedge else "false"
+
+    if hedge:
+        try:
+            ratio = questionary.text(
+                "헤지 비율 (TREND_DOWN 시 재고 대비, 0.0~1.0):",
+                default=env.get("HEDGE_RATIO", "1.0"),
+                validate=lambda v: True if _is_number(v) and 0 <= float(v) <= 1
+                else "0과 1 사이 숫자를 입력해주세요",
+                style=STYLE,
+            ).ask()
+        except (KeyboardInterrupt, EOFError):
+            return
+        if ratio is None:
+            return
+        env["HEDGE_RATIO"] = ratio
+
+    def _valid_levels(v: str):
+        try:
+            from risk_manager import parse_derisk_levels
+            return True if parse_derisk_levels(v) else "형식: 5:0.5,8:1.0,12:stop"
+        except Exception:
+            return "형식: 5:0.5,8:1.0,12:stop"
+
+    try:
+        levels = questionary.text(
+            "디리스킹 래더 (드로다운%:헤지비율 또는 stop):",
+            default=env.get("DERISK_LEVELS", "5:0.5,8:1.0,12:stop"),
+            validate=_valid_levels,
+            style=STYLE,
+        ).ask()
+    except (KeyboardInterrupt, EOFError):
+        return
+    if levels is None:
+        return
+    env["DERISK_LEVELS"] = levels
+
+    try:
+        max_loss = questionary.text(
+            "손절 백스톱 (%, 래더 뒤 최후 안전장치):",
+            default=env.get("MAX_LOSS_PERCENT", "15"),
+            validate=lambda v: True if _is_number(v) and float(v) > 0 else "양수를 입력해주세요",
+            style=STYLE,
+        ).ask()
+    except (KeyboardInterrupt, EOFError):
+        return
+    if max_loss is None:
+        return
+    env["MAX_LOSS_PERCENT"] = max_loss
+
+    save_env(env)
+    print("\n  ✅ 리스크 관리 설정 저장 완료")
+    pause()
+
+
 # ─── 고급 설정 ───────────────────────────────────────────
 
 def setup_advanced(env: dict):
@@ -1099,18 +1448,7 @@ def setup_advanced(env: dict):
         return
     env["LOOP_INTERVAL_SEC"] = loop
 
-    try:
-        loss = questionary.text(
-            "손절 기준 (%):",
-            default=env.get("MAX_LOSS_PERCENT", "15"),
-            validate=lambda v: True if _is_number(v) else "숫자를 입력해주세요",
-            style=STYLE,
-        ).ask()
-    except (KeyboardInterrupt, EOFError):
-        return
-    if loss is None:
-        return
-    env["MAX_LOSS_PERCENT"] = loss
+    # 손절/래더/헤지는 "🛡️ 리스크 관리" 메뉴에서 설정한다.
 
     try:
         trigger = questionary.text(
@@ -1182,16 +1520,31 @@ def view_settings():
             val_str = _vtrunc(val_str, V)
         return _box_line(f"{_vpad(label, L)}: {_vpad(val_str, V)}", W)
 
+    total = env.get("TOTAL_BUDGET", "-")
+    grid_b = env.get("GRID_BUDGET", "-")
+    reserve = env.get("RESERVE_BUDGET")
+    if reserve is None and _is_number(total) and _is_number(grid_b):
+        reserve = str(round(float(total) - float(grid_b), 2))
+
     print(f"  ┌{'─' * W}┐")
     print(_row("OKX API", mask(env.get("OKX_API_KEY", ""))))
     print(_row("거래 모드", mode))
     print(f"  ├{'─' * W}┤")
     print(_row("심볼", env.get("SYMBOL", "-")))
-    print(_row("총 예산", env.get("TOTAL_BUDGET", "-") + " USDT"))
+    print(_row("총 예산", total + " USDT"))
+    print(_row("그리드 예산", grid_b + " USDT"))
+    print(_row("예비 자금", (reserve or "-") + " USDT"))
     grid_range = env.get("GRID_LOWER", "-") + " ~ " + env.get("GRID_UPPER", "-")
     print(_row("그리드 범위", grid_range))
     print(_row("그리드 개수", env.get("GRID_COUNT", "-")))
     print(_row("그리드 모드", env.get("GRID_MODE", "-")))
+    print(f"  ├{'─' * W}┤")
+    regime_on = env.get("REGIME_FILTER_ENABLED", "true") == "true"
+    hedge_on = env.get("HEDGE_ENABLED", "true") == "true"
+    print(_row("레짐 필터", "ON (일봉 추세 감지)" if regime_on else "OFF"))
+    print(_row("숏 헤지", f"ON (비율 {env.get('HEDGE_RATIO', '1.0')})" if hedge_on else "OFF"))
+    print(_row("래더", env.get("DERISK_LEVELS", "5:0.5,8:1.0,12:stop")))
+    print(_row("손절 백스톱", env.get("MAX_LOSS_PERCENT", "15") + "%"))
     print(f"  ├{'─' * W}┤")
     llm_info = f"{env.get('LLM_PROVIDER', '-')} / {env.get('LLM_MODEL', '-')}"
     print(_row("LLM", llm_info))
@@ -1200,8 +1553,77 @@ def view_settings():
     tg = "ON" if env.get("TELEGRAM_TOKEN") else "OFF"
     print(_row("텔레그램", tg))
     print(_row("루프 간격", env.get("LOOP_INTERVAL_SEC", "120") + "s"))
-    print(_row("손절 기준", env.get("MAX_LOSS_PERCENT", "15") + "%"))
     print(f"  └{'─' * W}┘")
+    pause()
+
+
+# ─── 잔고/봇 현황 ────────────────────────────────────────
+
+def view_account_status():
+    """OKX 잔고 + 활성 그리드봇 현황 — 시작 전에 계좌 상태를 한눈에."""
+    header("잔고/봇 현황")
+    env = load_env()
+
+    if not env.get("OKX_API_KEY"):
+        print("  ⚠ OKX API 키가 없습니다. 먼저 설정을 완료해주세요.")
+        pause()
+        return
+
+    mode_label = "Demo (모의거래)" if env.get("DEMO_MODE", "true") == "true" else "⚠ Live (실거래)"
+    print(f"  계좌: {mode_label}")
+    print()
+    print("  🔍 조회 중...")
+
+    balances = fetch_balances(env)
+    bots = fetch_active_bots(env)
+    symbol = env.get("SYMBOL", "ETH-USDT")
+    price = fetch_price(symbol)
+
+    W = 46
+    print()
+    if balances is None:
+        print("  ❌ 잔고 조회 실패 — API 키/네트워크를 확인해주세요.")
+    elif not balances:
+        print("  (보유 자산 없음)")
+    else:
+        print(f"  ┌{'─' * W}┐")
+        print(_box_line("보유 자산", W))
+        print(f"  ├{'─' * W}┤")
+        total_usd = 0.0
+        for ccy, info in sorted(balances.items(), key=lambda kv: -kv[1]["eq_usd"]):
+            total_usd += info["eq_usd"]
+            print(_box_line(
+                f"{_vpad(ccy, 6)} {info['total']:>16,.4f}  (${info['eq_usd']:>11,.2f})", W))
+        print(f"  ├{'─' * W}┤")
+        print(_box_line(f"{_vpad('합계', 6)} {'':>16}  (${total_usd:>11,.2f})", W))
+        print(f"  └{'─' * W}┘")
+
+    print()
+    if bots is None:
+        print("  ❌ 그리드봇 조회 실패")
+    elif not bots:
+        print("  실행 중인 그리드봇 없음 — 시작 시 새 봇이 생성됩니다.")
+        if price and _is_number(env.get("GRID_BUDGET", "")):
+            quote = symbol.split("-")[1] if "-" in symbol else "USDT"
+            avail = (balances or {}).get(quote, {}).get("available")
+            need = float(env["GRID_BUDGET"])
+            if avail is not None:
+                ok = "✅ 충분" if avail >= need else f"❌ 부족 ({need - avail:,.2f} 모자람)"
+                print(f"  시작 예산 체크: 필요 {need:,.2f} / 가용 {avail:,.2f} → {ok}")
+    else:
+        print(f"  ┌{'─' * W}┐")
+        print(_box_line(f"활성 그리드봇 {len(bots)}개", W))
+        print(f"  ├{'─' * W}┤")
+        for b in bots:
+            inst = b.get("instId", "?")
+            rng = f"{float(b.get('minPx', 0)):,.0f}~{float(b.get('maxPx', 0)):,.0f}"
+            pnl = float(b.get("totalPnl", 0) or 0)
+            emoji = "📈" if pnl >= 0 else "📉"
+            print(_box_line(f"{inst} {rng} {emoji} {pnl:+,.2f}", W))
+        print(f"  └{'─' * W}┘")
+
+    if price:
+        print(f"\n  {symbol} 현재가: {price:,.2f} USDT")
     pause()
 
 

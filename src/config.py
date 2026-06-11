@@ -9,7 +9,13 @@ import sys
 # ─── .env 로더 ────────────────────────────────────────
 _env_path = os.path.join(os.path.dirname(__file__), ".env")
 
-def _load_env():
+def _load_env(override: bool = False):
+    """`.env`를 os.environ에 로드.
+
+    override=True면 이미 설정된 환경변수도 .env 값으로 덮어쓴다
+    (메뉴에서 설정 변경 후 reload()용 — setdefault만 쓰면 첫 로드 값이
+    영원히 남아서 변경이 반영되지 않는다).
+    """
     if not os.path.exists(_env_path):
         return
     try:
@@ -20,13 +26,29 @@ def _load_env():
                     if not line or line.startswith("#") or "=" not in line:
                         continue
                     key, _, value = line.partition("=")
-                    os.environ.setdefault(key.strip(), value.strip())
+                    if override:
+                        os.environ[key.strip()] = value.strip()
+                    else:
+                        os.environ.setdefault(key.strip(), value.strip())
                 except (ValueError, UnicodeDecodeError):
                     continue
     except (OSError, UnicodeDecodeError) as e:
         print(f"  [config] .env 파일 읽기 오류: {e}", file=sys.stderr)
 
 _load_env()
+
+
+def reload():
+    """설정 강제 재로드 — 메뉴에서 .env 변경 후 호출.
+
+    .env를 override 모드로 다시 읽고 이 모듈을 재실행해서
+    모든 `config.X` 참조가 새 값을 보게 한다.
+    (다른 모듈은 반드시 `import config` 후 `config.X`로 참조할 것 —
+     `from config import X`는 reload가 반영되지 않는다)
+    """
+    import importlib
+    _load_env(override=True)
+    importlib.reload(sys.modules[__name__])
 
 def _env(key: str, default: str = "") -> str:
     return os.environ.get(key, default)

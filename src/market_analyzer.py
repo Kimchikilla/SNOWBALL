@@ -5,12 +5,9 @@ market_analyzer.py
 
 import numpy as np
 from dataclasses import dataclass
-from config import (
-    ATR_PERIOD, ATR_SPIKE_MULTIPLIER,
-    RSI_PERIOD, RSI_OVERBOUGHT, RSI_OVERSOLD,
-    BOLLINGER_PERIOD, BOLLINGER_STD,
-    VOLUME_SPIKE_MULTIPLIER
-)
+
+# config 핫리로드 호환을 위해 from-import 대신 config.X로 참조한다.
+import config
 
 
 @dataclass
@@ -54,7 +51,7 @@ class MarketAnalyzer:
         Returns:
             MarketSignal
         """
-        if len(candles) < max(ATR_PERIOD, RSI_PERIOD, BOLLINGER_PERIOD) + 5:
+        if len(candles) < max(config.ATR_PERIOD, config.RSI_PERIOD, config.BOLLINGER_PERIOD) + 5:
             raise ValueError("캔들 데이터가 부족합니다 (최소 100개 필요)")
 
         highs   = np.array([float(c["high"])  for c in candles])
@@ -109,13 +106,13 @@ class MarketAnalyzer:
                 np.abs(lows[1:]  - closes[:-1])
             )
         )
-        atr_series = self._ema(tr, ATR_PERIOD)
+        atr_series = self._ema(tr, config.ATR_PERIOD)
         cur = atr_series[-1]
-        avg = float(np.mean(atr_series[-ATR_PERIOD * 2:-ATR_PERIOD]))
+        avg = float(np.mean(atr_series[-config.ATR_PERIOD * 2:-config.ATR_PERIOD]))
 
         ratio = cur / (avg + 1e-9)
         # ratio 1x→0점, 3x→30점, 그 이상은 30점 cap
-        score = min(30.0, max(0.0, (ratio - 1.0) / (ATR_SPIKE_MULTIPLIER - 1.0) * 30.0))
+        score = min(30.0, max(0.0, (ratio - 1.0) / (config.ATR_SPIKE_MULTIPLIER - 1.0) * 30.0))
         return round(score, 1), round(cur, 2), round(avg, 2)
 
     def _rsi_score(self, closes):
@@ -124,8 +121,8 @@ class MarketAnalyzer:
         gains  = np.where(delta > 0, delta, 0.0)
         losses = np.where(delta < 0, -delta, 0.0)
 
-        avg_gain = self._ema(gains,  RSI_PERIOD)[-1]
-        avg_loss = self._ema(losses, RSI_PERIOD)[-1]
+        avg_gain = self._ema(gains,  config.RSI_PERIOD)[-1]
+        avg_loss = self._ema(losses, config.RSI_PERIOD)[-1]
 
         # 변동 없으면 RSI=50 (중립)
         if avg_gain < 1e-9 and avg_loss < 1e-9:
@@ -135,10 +132,10 @@ class MarketAnalyzer:
             rsi = 100 - 100 / (1 + rs)
 
         # 과매수(>75) 또는 과매도(<25)일수록 점수 높음
-        if rsi > RSI_OVERBOUGHT:
-            score = (rsi - RSI_OVERBOUGHT) / (100 - RSI_OVERBOUGHT) * 25
-        elif rsi < RSI_OVERSOLD:
-            score = (RSI_OVERSOLD - rsi) / RSI_OVERSOLD * 25
+        if rsi > config.RSI_OVERBOUGHT:
+            score = (rsi - config.RSI_OVERBOUGHT) / (100 - config.RSI_OVERBOUGHT) * 25
+        elif rsi < config.RSI_OVERSOLD:
+            score = (config.RSI_OVERSOLD - rsi) / config.RSI_OVERSOLD * 25
         else:
             score = 0.0
 
@@ -146,14 +143,14 @@ class MarketAnalyzer:
 
     def _bollinger_score(self, closes):
         """볼린저밴드 폭 급팽창 → 최대 25점 (1분봉 적응형 임계값)"""
-        bb_closes = closes[-BOLLINGER_PERIOD:]
+        bb_closes = closes[-config.BOLLINGER_PERIOD:]
         mean  = float(np.mean(bb_closes))
         std   = float(np.std(bb_closes))
-        width = (std * BOLLINGER_STD * 2) / (mean + 1e-9)   # 가격 대비 밴드 폭
+        width = (std * config.BOLLINGER_STD * 2) / (mean + 1e-9)   # 가격 대비 밴드 폭
 
         # 타임프레임 적응형: 전체 캔들의 평균 변동폭으로 기준선 산출
         all_returns = np.abs(np.diff(closes)) / (closes[:-1] + 1e-9)
-        baseline = float(np.mean(all_returns)) * BOLLINGER_PERIOD
+        baseline = float(np.mean(all_returns)) * config.BOLLINGER_PERIOD
         # 기준선이 너무 작으면 최소값 보장 (일봉 기준 ~0.02)
         threshold_low = max(baseline * 0.5, 0.001)
         threshold_high = max(baseline * 2.0, threshold_low * 3)
@@ -168,7 +165,7 @@ class MarketAnalyzer:
         cur = float(np.mean(volumes[-3:])) if len(volumes) >= 3 else float(volumes[-1])
         ratio = cur / (avg + 1e-9)
 
-        score = min(20.0, max(0.0, (ratio - 1.0) / (VOLUME_SPIKE_MULTIPLIER - 1.0) * 20.0))
+        score = min(20.0, max(0.0, (ratio - 1.0) / (config.VOLUME_SPIKE_MULTIPLIER - 1.0) * 20.0))
         return round(score, 1), round(ratio, 2)
 
     # ─── 추세 감지 ──────────────────────────────────────────

@@ -26,7 +26,7 @@ import anthropic
 import openai
 from google import genai
 
-from config import LLM_PROVIDER, LLM_API_KEY, LLM_MODEL
+import config as app_config
 
 
 VALID_ACTIONS = ("MAINTAIN", "WIDEN", "STOP", "SHIFT_UP", "SHIFT_DOWN")
@@ -197,24 +197,25 @@ class MultiAgentJudge:
     def __init__(self):
         self.available = False
         try:
-            self.provider = LLM_PROVIDER.lower()
-            self.model = LLM_MODEL or self.DEFAULT_MODELS.get(self.provider, "gpt-4o")
+            llm_api_key = app_config.LLM_API_KEY
+            self.provider = app_config.LLM_PROVIDER.lower()
+            self.model = app_config.LLM_MODEL or self.DEFAULT_MODELS.get(self.provider, "gpt-4o")
 
-            if not LLM_API_KEY:
+            if not llm_api_key:
                 print("[MultiAgent] API 키 미설정 — 멀티 에이전트 비활성화")
                 return
 
             if self.provider == "anthropic":
-                self.client = anthropic.Anthropic(api_key=LLM_API_KEY)
+                self.client = anthropic.Anthropic(api_key=llm_api_key)
             elif self.provider == "openai":
-                self.client = openai.OpenAI(api_key=LLM_API_KEY)
+                self.client = openai.OpenAI(api_key=llm_api_key)
             elif self.provider == "grok":
                 self.client = openai.OpenAI(
-                    api_key=LLM_API_KEY,
+                    api_key=llm_api_key,
                     base_url="https://api.x.ai/v1",
                 )
             elif self.provider == "gemini":
-                self.client = genai.Client(api_key=LLM_API_KEY)
+                self.client = genai.Client(api_key=llm_api_key)
             else:
                 print(f"[MultiAgent] 미지원 provider: {self.provider}")
                 return

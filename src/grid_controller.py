@@ -11,12 +11,8 @@ import httpx
 _MAX_RETRIES = 3
 _RETRY_DELAY = 2
 
-from config import (
-    OKX_API_KEY, OKX_SECRET_KEY, OKX_PASSPHRASE,
-    OKX_BASE_URL, DEMO_MODE, OKX_TIMEOUT_SEC,
-    SYMBOL, GRID_LOWER, GRID_UPPER, GRID_COUNT, GRID_MODE,
-    GRID_BUDGET, ATR_PERIOD
-)
+# config 핫리로드 호환을 위해 from-import 대신 config.X로 참조한다.
+import config
 
 
 class GridController:
@@ -37,8 +33,8 @@ class GridController:
         self.current_grid_num: Optional[int] = None  # 현재 그리드 개수
         self.current_mode: Optional[str] = None      # arithmetic / geometric
         self.client = httpx.Client(
-            base_url=OKX_BASE_URL,
-            timeout=httpx.Timeout(OKX_TIMEOUT_SEC, connect=10.0),
+            base_url=config.OKX_BASE_URL,
+            timeout=httpx.Timeout(config.OKX_TIMEOUT_SEC, connect=10.0),
         )
 
     # ─── 유틸리티 ─────────────────────────────────────────────
@@ -67,7 +63,7 @@ class GridController:
                 params={
                     "algoOrdType": "grid",
                     "instType": "SPOT",
-                    "instId": SYMBOL,
+                    "instId": config.SYMBOL,
                 }
             )
 
@@ -83,7 +79,7 @@ class GridController:
             for bot in bots:
                 if not isinstance(bot, dict):
                     continue
-                if bot.get("instId") != SYMBOL:
+                if bot.get("instId") != config.SYMBOL:
                     continue
 
                 # 동기화
@@ -106,7 +102,7 @@ class GridController:
 
                 self._log(
                     f"✅ 기존 그리드봇 감지 | bot_id={self.bot_id}\n"
-                    f"     심볼: {SYMBOL} | 상태: {state}\n"
+                    f"     심볼: {config.SYMBOL} | 상태: {state}\n"
                     f"     범위: {self.current_lower:,.2f} ~ {self.current_upper:,.2f}\n"
                     f"     그리드: {grid_num}개 ({mode})\n"
                     f"     투자금: {investment:,.2f} USDT\n"
@@ -179,21 +175,44 @@ class GridController:
         # 없으면 새로 시작
         return self.start_grid(lower, upper, count)
 
-    def start_grid(self, lower=None, upper=None, count=None, mode=None) -> dict:
+    def start_grid(self, lower=None, upper=None, count=None, mode=None,
+                   budget=None) -> dict:
         """새 그리드봇을 시작합니다."""
-        lower = lower or GRID_LOWER
-        upper = upper or GRID_UPPER
-        count = count or GRID_COUNT
-        mode = mode or self.current_mode or GRID_MODE
+        lower = lower or config.GRID_LOWER
+        upper = upper or config.GRID_UPPER
+        count = count or config.GRID_COUNT
+        mode = mode or self.current_mode or config.GRID_MODE
+        budget = float(budget or config.GRID_BUDGET)
+
+        # 잔고 프리체크: OKX 에러로 죽기 전에 명확한 사유를 돌려준다.
+        # 봇 정지 직후엔 자금 해제가 늦을 수 있어 짧게 재시도한다.
+        avail = None
+        for attempt in range(3):
+            avail = self.get_quote_balance()
+            if avail is None or avail >= budget:
+                break
+            time.sleep(3)
+        if avail is not None and avail < budget:
+            self._log(
+                f"그리드 시작 차단: {self._quote_ccy()} 가용 잔고 {avail:,.2f} < "
+                f"필요 예산 {budget:,.2f}",
+                level="ERROR",
+            )
+            return {
+                "code": "-1",
+                "status": "insufficient_balance",
+                "available": avail,
+                "required": budget,
+            }
 
         body = {
-            "instId":       SYMBOL,
+            "instId":       config.SYMBOL,
             "algoOrdType":  "grid",
             "maxPx":        str(upper),
             "minPx":        str(lower),
             "gridNum":      str(count),
             "runType":      "1" if mode == "arithmetic" else "2",
-            "quoteSz":      str(GRID_BUDGET),
+            "quoteSz":      str(budget),
         }
         resp = self._post("/api/v5/tradingBot/grid/order-algo", body)
 
@@ -230,7 +249,7 @@ class GridController:
         current_range = (
             self.current_upper - self.current_lower
             if self.current_lower is not None and self.current_upper is not None
-            else GRID_UPPER - GRID_LOWER
+            else config.GRID_UPPER - config.GRID_LOWER
         )
         # WIDEN must never shrink the active grid. ATR from 1m candles can be tiny,
         # so use it only as a floor alongside the current range.
@@ -248,8 +267,8 @@ class GridController:
         return self.start_grid(
             lower=new_lower,
             upper=new_upper,
-            count=self.current_grid_num or GRID_COUNT,
-            mode=self.current_mode or GRID_MODE,
+            count=self.current_grid_num or config.GRID_COUNT,
+            mode=self.current_mode or config.GRID_MODE,
         )
 
     def emergency_stop(self, verify: bool = True) -> dict:
@@ -283,12 +302,25 @@ class GridController:
 
     @staticmethod
     def _base_ccy() -> str:
-        return SYMBOL.split("-")[0]
+        return config.SYMBOL.split("-")[0]
+
+    @staticmethod
+    def _quote_ccy() -> str:
+        parts = config.SYMBOL.split("-")
+        return parts[1] if len(parts) > 1 else "USDT"
 
     def get_base_balance(self) -> float:
         """기초자산(예: ETH) 현물 가용 잔고."""
         balances = self.get_account_balance()
         info = balances.get(self._base_ccy(), {})
+        return float(info.get("available", 0.0) or 0.0)
+
+    def get_quote_balance(self) -> Optional[float]:
+        """호가자산(예: USDT) 가용 잔고. 조회 실패 시 None (차단하지 않음)."""
+        balances = self.get_account_balance()
+        if not balances:
+            return None
+        info = balances.get(self._quote_ccy(), {})
         return float(info.get("available", 0.0) or 0.0)
 
     def verify_liquidated(self, dust_usd: float = 10.0,
@@ -314,7 +346,7 @@ class GridController:
     def get_last_price(self) -> Optional[float]:
         """현재가 조회 (public ticker)."""
         try:
-            resp = self._get("/api/v5/market/ticker", params={"instId": SYMBOL})
+            resp = self._get("/api/v5/market/ticker", params={"instId": config.SYMBOL})
             data = resp.get("data", [])
             if isinstance(data, list) and data:
                 return self._safe_float(data[0].get("last")) or None
@@ -327,7 +359,7 @@ class GridController:
         if qty <= 0:
             return {"code": "-1", "msg": "qty must be positive"}
         body = {
-            "instId": SYMBOL,
+            "instId": config.SYMBOL,
             "tdMode": "cash",
             "side": "sell",
             "ordType": "market",
@@ -357,7 +389,7 @@ class GridController:
         # "1" = stop and sell all holdings, "2" = stop and keep holdings.
         body = [{
             "algoId":      self.bot_id,
-            "instId":      SYMBOL,
+            "instId":      config.SYMBOL,
             "algoOrdType": "grid",
             "stopType":    "1" if sell_remaining else "2",
         }]
@@ -394,7 +426,7 @@ class GridController:
         try:
             resp = self._get(
                 "/api/v5/trade/fills-history",
-                params={"instId": SYMBOL, "limit": str(limit)}
+                params={"instId": config.SYMBOL, "limit": str(limit)}
             )
             data = resp.get("data", [])
             if not isinstance(data, list):
@@ -654,7 +686,7 @@ class GridController:
                           grid_range: float = None) -> dict:
         """
         그리드 중심을 new_center로 이동합니다 (trailing grid).
-        grid_range가 None이면 현재 GRID_UPPER - GRID_LOWER 폭을 그대로 사용합니다.
+        grid_range가 None이면 현재 config.GRID_UPPER - config.GRID_LOWER 폭을 그대로 사용합니다.
         """
         if not self.bot_id:
             return {"status": "no_bot"}
@@ -663,7 +695,7 @@ class GridController:
             if self.current_lower is not None and self.current_upper is not None:
                 grid_range = self.current_upper - self.current_lower
             else:
-                grid_range = GRID_UPPER - GRID_LOWER
+                grid_range = config.GRID_UPPER - config.GRID_LOWER
 
         new_lower = new_center - grid_range / 2
         new_upper = new_center + grid_range / 2
@@ -678,8 +710,8 @@ class GridController:
         resp = self.start_grid(
             lower=new_lower,
             upper=new_upper,
-            count=self.current_grid_num or GRID_COUNT,
-            mode=self.current_mode or GRID_MODE,
+            count=self.current_grid_num or config.GRID_COUNT,
+            mode=self.current_mode or config.GRID_MODE,
         )
         return resp
 
@@ -690,7 +722,7 @@ class GridController:
         try:
             orders_resp = self._get(
                 "/api/v5/trade/orders-pending",
-                params={"instId": SYMBOL, "ordType": "limit"}
+                params={"instId": config.SYMBOL, "ordType": "limit"}
             )
             orders = orders_resp.get("data", [])
             if not isinstance(orders, list):
@@ -702,7 +734,7 @@ class GridController:
             cancel_list = []
             for o in orders:
                 if isinstance(o, dict) and "ordId" in o:
-                    cancel_list.append({"instId": SYMBOL, "ordId": o["ordId"]})
+                    cancel_list.append({"instId": config.SYMBOL, "ordId": o["ordId"]})
             if not cancel_list:
                 return {"status": "no_pending_orders"}
 
@@ -721,7 +753,7 @@ class GridController:
     def _sign(self, timestamp: str, method: str, path: str, body: str = "") -> str:
         try:
             msg    = timestamp + method + path + body
-            digest = hmac.new(OKX_SECRET_KEY.encode(), msg.encode(), hashlib.sha256).digest()
+            digest = hmac.new(config.OKX_SECRET_KEY.encode(), msg.encode(), hashlib.sha256).digest()
             return base64.b64encode(digest).decode()
         except Exception as e:
             self._log(f"HMAC 서명 실패 (키가 유효하지 않을 수 있음): {e}", level="ERROR")
@@ -732,14 +764,14 @@ class GridController:
         ts  = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
         sig = self._sign(ts, method, path, body)
         return {
-            "OK-ACCESS-KEY":        OKX_API_KEY,
+            "OK-ACCESS-KEY":        config.OKX_API_KEY,
             "OK-ACCESS-SIGN":       sig,
             "OK-ACCESS-TIMESTAMP":  ts,
-            "OK-ACCESS-PASSPHRASE": OKX_PASSPHRASE,
+            "OK-ACCESS-PASSPHRASE": config.OKX_PASSPHRASE,
             "Content-Type":         "application/json",
             "Accept":               "application/json",
             "User-Agent":           "snowball-agent/1.0",
-            **({"x-simulated-trading": "1"} if DEMO_MODE else {}),
+            **({"x-simulated-trading": "1"} if config.DEMO_MODE else {}),
         }
 
     @staticmethod
@@ -833,7 +865,7 @@ class HedgeController(GridController):
 
     @property
     def inst_id(self) -> str:
-        return f"{SYMBOL}-SWAP"   # 예: ETH-USDT → ETH-USDT-SWAP
+        return f"{config.SYMBOL}-SWAP"   # 예: ETH-USDT → ETH-USDT-SWAP
 
     # ─── 인스트루먼트 메타 ──────────────────────────────────
 
