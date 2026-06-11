@@ -93,13 +93,58 @@ BOLLINGER_STD           = _env_float("BOLLINGER_STD", 2.0)
 VOLUME_SPIKE_MULTIPLIER = _env_float("VOLUME_SPIKE_MULTIPLIER", 5.0)
 
 # ─── 손절 조건 ─────────────────────────────────────────
+# MAX_LOSS_PERCENT는 최후의 백스톱. 그 전에 DERISK_LEVELS 래더가 단계적으로 작동한다.
 MAX_LOSS_PERCENT = _env_float("MAX_LOSS_PERCENT", 15.0)
+
+# ─── 시장 레짐 필터 (2026-06-04 손절 사고 사후 도입) ────
+# 일봉 기준 RANGE / TREND_UP / TREND_DOWN을 코드 규칙으로 분류.
+# TREND_DOWN 확정 시: 헤지 가동 + 방어 SHIFT_DOWN 허용 + LLM 입증 책임 역전.
+REGIME_FILTER_ENABLED = _env_bool("REGIME_FILTER_ENABLED", True)
+REGIME_BAR            = _env("REGIME_BAR", "1D")          # 레짐 판별용 캔들 봉
+REGIME_LOOKBACK       = _env_int("REGIME_LOOKBACK", 120)  # 캔들 개수
+REGIME_ADX_MIN        = _env_float("REGIME_ADX_MIN", 20.0)
+REGIME_SLOPE_PCT      = _env_float("REGIME_SLOPE_PCT", 1.0)   # EMA20 5봉 기울기 임계 (%)
+REGIME_CONFIRM_TICKS  = _env_int("REGIME_CONFIRM_TICKS", 3)   # 연속 평가 횟수로 확정
+REGIME_REFRESH_MIN    = _env_int("REGIME_REFRESH_MIN", 60)    # 일봉 재조회 간격 (분)
+
+# ─── 단계적 디리스킹 래더 ──────────────────────────────
+# "드로다운%:액션" 콤마 구분. 액션은 헤지 비율(0~1) 또는 "stop"(전량 청산).
+# 기본: -5% → 재고 50% 숏 헤지, -8% → 100% 헤지, -12% → 검증된 전량 청산.
+# 그리드 재고는 봇에 잠겨 있어 부분 매도가 어려우므로, 부분 디리스킹은
+# 선물 숏 헤지로 수행한다 (그리드는 계속 회전, 방향 노출만 중립화).
+DERISK_LEVELS = _env("DERISK_LEVELS", "5:0.5,8:1.0,12:stop")
+
+# ─── 재고(인벤토리) 상한 ────────────────────────────────
+# TREND_DOWN 레짐에서 재고 평가액이 그리드 예산의 이 비율을 넘으면
+# 초과분만큼 헤지를 추가한다 (하락장 무한 물타기 노출 차단).
+INVENTORY_CAP_PCT = _env_float("INVENTORY_CAP_PCT", 60.0)
+
+# ─── 선물 숏 헤지 ──────────────────────────────────────
+HEDGE_ENABLED       = _env_bool("HEDGE_ENABLED", True)
+HEDGE_RATIO         = _env_float("HEDGE_RATIO", 1.0)    # TREND_DOWN 시 재고 대비 헤지 비율
+HEDGE_LEVERAGE      = _env_int("HEDGE_LEVERAGE", 2)     # cross 마진 레버리지
+HEDGE_MIN_DELTA_USD = _env_float("HEDGE_MIN_DELTA_USD", 200.0)  # 이보다 작은 조정은 스킵
 
 # ─── 그리드 이탈 대응 ──────────────────────────────────
 # 이탈 후 LLM에게 재배치 판단 요청까지 대기 (시간)
-BREAKOUT_WAIT_HOURS = _env_int("BREAKOUT_WAIT_HOURS", 24)
+# 24h→6h 단축 (2026-06-04: 5분 틱 시장에서 24h 대기는 -10%를 더 맞는 시간)
+BREAKOUT_WAIT_HOURS = _env_int("BREAKOUT_WAIT_HOURS", 6)
 # 이 시간 초과 시 LLM 판단 무시하고 강제 SHIFT (수수료 가드는 여전히 적용)
-BREAKOUT_HARD_TIMEOUT_HOURS = _env_int("BREAKOUT_HARD_TIMEOUT_HOURS", 48)
+BREAKOUT_HARD_TIMEOUT_HOURS = _env_int("BREAKOUT_HARD_TIMEOUT_HOURS", 18)
+# 복귀 판정 히스테리시스: 경계에서 이 비율(%) 이상 안쪽으로 들어와야 타이머 리셋.
+# (2026-05-23 $1,994 윅처럼 경계를 들락거리는 완만한 붕괴에서 타이머가
+#  매번 리셋되어 이탈 시간이 영영 누적되지 않던 결함의 수정)
+BREAKOUT_REENTRY_BUFFER_PCT = _env_float("BREAKOUT_REENTRY_BUFFER_PCT", 1.0)
+# TREND_DOWN 레짐 + 하단 이탈이면 이 시간 후 LLM 없이 즉시 방어 SHIFT_DOWN
+BREAKOUT_TREND_FAST_HOURS = _env_float("BREAKOUT_TREND_FAST_HOURS", 2.0)
+
+# ─── 하단 존 선제 재배치 ────────────────────────────────
+# TREND_DOWN 레짐에서 가격이 그리드 범위 내 위치 하위 N% 구간에
+# CONFIRM_TICKS틱 연속 머물면 이탈을 기다리지 않고 선제 SHIFT_DOWN.
+# (2026-05-29 "버퍼 0.55%뿐, 다음 재배치 땐 1900~2500" 분석을 하고도
+#  트리거가 없어 행동하지 못했던 케이스의 자동화)
+BOTTOM_ZONE_PCT           = _env_float("BOTTOM_ZONE_PCT", 10.0)
+BOTTOM_ZONE_CONFIRM_TICKS = _env_int("BOTTOM_ZONE_CONFIRM_TICKS", 12)  # 5분 틱 기준 1시간
 
 # ─── 상태 저장 (재시작 시 이어받기) ─────────────────────
 # 이탈 타이머 / 일일 카운터 / 재시작 기록 / 포지션을 파일에 저장.

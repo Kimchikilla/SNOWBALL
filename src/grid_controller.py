@@ -252,14 +252,101 @@ class GridController:
             mode=self.current_mode or GRID_MODE,
         )
 
-    def emergency_stop(self) -> dict:
+    def emergency_stop(self, verify: bool = True) -> dict:
         """
         EMERGENCY 상태: 모든 포지션을 시장가로 즉시 청산합니다.
+
+        2026-06-04 사고 교훈: stopType 매핑 버그로 "청산" 알림 후에도
+        ETH 37.5개가 남아 있었다. 이제 정지 후 잔고를 실제로 검증하고,
+        남은 물량이 있으면 시장가로 직접 매도한다.
         """
         self._log("긴급 청산 실행 (EMERGENCY)", level="CRITICAL")
         result = self.stop_grid(sell_remaining=True)
         self.bot_id = None
+
+        if not verify:
+            return result
+
+        verification = self.verify_liquidated()
+        result["verification"] = verification
+        if not verification.get("flat", False):
+            self._log(
+                f"⚠️ 청산 검증 실패: {verification.get('remaining_qty', 0):.6f} "
+                f"{self._base_ccy()} 잔존 → 시장가 직접 매도 시도",
+                level="CRITICAL",
+            )
+            result["flatten"] = self.flatten_spot()
+            result["verification"] = self.verify_liquidated()
         return result
+
+    # ─── 청산 검증 / 현물 직접 매도 ──────────────────────────
+
+    @staticmethod
+    def _base_ccy() -> str:
+        return SYMBOL.split("-")[0]
+
+    def get_base_balance(self) -> float:
+        """기초자산(예: ETH) 현물 가용 잔고."""
+        balances = self.get_account_balance()
+        info = balances.get(self._base_ccy(), {})
+        return float(info.get("available", 0.0) or 0.0)
+
+    def verify_liquidated(self, dust_usd: float = 10.0,
+                          max_attempts: int = 6, wait_sec: float = 5.0) -> dict:
+        """봇 정지 후 기초자산이 실제로 청산됐는지 검증.
+
+        봇 정지 직후엔 자산 해제/매도 체결에 시간이 걸릴 수 있어
+        wait_sec 간격으로 max_attempts회까지 재확인한다.
+        """
+        price = self.get_last_price() or 0.0
+        remaining = 0.0
+        for attempt in range(1, max_attempts + 1):
+            remaining = self.get_base_balance()
+            value = remaining * price
+            if value <= dust_usd:
+                return {"flat": True, "remaining_qty": remaining,
+                        "remaining_usd": value, "attempts": attempt}
+            if attempt < max_attempts:
+                time.sleep(wait_sec)
+        return {"flat": False, "remaining_qty": remaining,
+                "remaining_usd": remaining * price, "attempts": max_attempts}
+
+    def get_last_price(self) -> Optional[float]:
+        """현재가 조회 (public ticker)."""
+        try:
+            resp = self._get("/api/v5/market/ticker", params={"instId": SYMBOL})
+            data = resp.get("data", [])
+            if isinstance(data, list) and data:
+                return self._safe_float(data[0].get("last")) or None
+        except Exception as e:
+            self._log(f"현재가 조회 실패: {e}", level="ERROR")
+        return None
+
+    def spot_market_sell(self, qty: float) -> dict:
+        """현물 시장가 매도 (sz = 기초자산 수량)."""
+        if qty <= 0:
+            return {"code": "-1", "msg": "qty must be positive"}
+        body = {
+            "instId": SYMBOL,
+            "tdMode": "cash",
+            "side": "sell",
+            "ordType": "market",
+            "sz": f"{qty:.6f}",
+            "tgtCcy": "base_ccy",
+        }
+        resp = self._post("/api/v5/trade/order", body)
+        if resp.get("code") == "0":
+            self._log(f"현물 시장가 매도 | {qty:.6f} {self._base_ccy()}")
+        else:
+            self._log(f"현물 시장가 매도 실패: {resp.get('msg', resp)}", level="ERROR")
+        return resp
+
+    def flatten_spot(self) -> dict:
+        """가용 기초자산 전량 시장가 매도."""
+        qty = self.get_base_balance()
+        if qty <= 0:
+            return {"code": "0", "msg": "no base balance"}
+        return self.spot_market_sell(qty)
 
     def stop_grid(self, sell_remaining: bool = False) -> dict:
         """그리드봇을 중지합니다."""
@@ -725,3 +812,134 @@ class GridController:
     def _log(self, msg: str, level: str = "INFO"):
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{ts}] [{level}] [GridController] {msg}")
+
+
+# ──────────────────────────────────────────────────────────────
+class HedgeController(GridController):
+    """무기한 선물(SWAP) 숏 헤지 제어.
+
+    현물 그리드의 재고는 봇에 잠겨 있어 부분 매도가 어렵다. 대신 같은
+    기초자산의 USDT 무기한 선물에 숏을 잡아 방향 노출(델타)을 중립화한다.
+    그리드는 계속 회전하며 벌고, 가격 하락 손실은 숏이 상쇄한다.
+
+    GridController를 상속해 OKX 서명/HTTP 인프라를 재사용한다.
+    """
+
+    def __init__(self, leverage: int = 2):
+        super().__init__()
+        self.leverage = leverage
+        self._ct_val: Optional[float] = None      # 1계약당 기초자산 수량
+        self._leverage_set: bool = False
+
+    @property
+    def inst_id(self) -> str:
+        return f"{SYMBOL}-SWAP"   # 예: ETH-USDT → ETH-USDT-SWAP
+
+    # ─── 인스트루먼트 메타 ──────────────────────────────────
+
+    def get_ct_val(self) -> float:
+        """1계약당 기초자산 수량 (ETH-USDT-SWAP은 0.1 ETH). 실패 시 0."""
+        if self._ct_val:
+            return self._ct_val
+        try:
+            resp = self._get(
+                "/api/v5/public/instruments",
+                params={"instType": "SWAP", "instId": self.inst_id},
+            )
+            data = resp.get("data", [])
+            if isinstance(data, list) and data:
+                self._ct_val = self._safe_float(data[0].get("ctVal"))
+                return self._ct_val or 0.0
+        except Exception as e:
+            self._log(f"계약 단위 조회 실패: {e}", level="ERROR")
+        return 0.0
+
+    def _ensure_leverage(self):
+        if self._leverage_set:
+            return
+        resp = self._post("/api/v5/account/set-leverage", {
+            "instId": self.inst_id,
+            "lever": str(self.leverage),
+            "mgnMode": "cross",
+        })
+        if resp.get("code") == "0":
+            self._leverage_set = True
+        else:
+            self._log(f"레버리지 설정 실패 (계속 진행): {resp.get('msg', resp)}",
+                      level="WARNING")
+
+    # ─── 포지션 조회 / 조정 ────────────────────────────────
+
+    def get_short_qty(self) -> float:
+        """현재 숏 포지션 크기 (기초자산 단위, 양수). 없으면 0."""
+        try:
+            resp = self._get("/api/v5/account/positions",
+                             params={"instId": self.inst_id})
+            data = resp.get("data", [])
+            if not isinstance(data, list):
+                return 0.0
+            ct_val = self.get_ct_val()
+            for pos in data:
+                if not isinstance(pos, dict):
+                    continue
+                contracts = self._safe_float(pos.get("pos"))
+                if contracts < 0 and ct_val > 0:     # net 모드: 음수 = 숏
+                    return abs(contracts) * ct_val
+            return 0.0
+        except Exception as e:
+            self._log(f"헤지 포지션 조회 실패: {e}", level="ERROR")
+            return 0.0
+
+    def adjust_short(self, target_qty: float, price: float,
+                     min_delta_usd: float = 200.0) -> dict:
+        """숏 포지션을 target_qty(기초자산 단위)로 조정.
+
+        현재와 목표의 차이가 min_delta_usd 미만이면 스킵 (수수료 절약).
+        Returns: {"status": ..., "current": ..., "target": ..., "delta_qty": ...}
+        """
+        ct_val = self.get_ct_val()
+        if ct_val <= 0:
+            return {"status": "no_ct_val"}
+
+        current = self.get_short_qty()
+        delta = target_qty - current
+        if abs(delta) * price < min_delta_usd:
+            return {"status": "skip_small_delta", "current": current,
+                    "target": target_qty, "delta_qty": delta}
+
+        contracts = int(abs(delta) / ct_val)
+        if contracts <= 0:
+            return {"status": "skip_below_lot", "current": current,
+                    "target": target_qty, "delta_qty": delta}
+
+        self._ensure_leverage()
+        if delta > 0:
+            # 숏 확대: sell
+            body = {
+                "instId": self.inst_id, "tdMode": "cross",
+                "side": "sell", "ordType": "market", "sz": str(contracts),
+            }
+        else:
+            # 숏 축소: buy (reduceOnly로 롱 전환 방지)
+            body = {
+                "instId": self.inst_id, "tdMode": "cross",
+                "side": "buy", "ordType": "market", "sz": str(contracts),
+                "reduceOnly": "true",
+            }
+
+        resp = self._post("/api/v5/trade/order", body)
+        if resp.get("code") == "0":
+            self._log(
+                f"헤지 조정 | 숏 {current:.4f} → {target_qty:.4f} "
+                f"({'+' if delta > 0 else ''}{delta:.4f}, {contracts}계약)"
+            )
+            return {"status": "adjusted", "current": current,
+                    "target": target_qty, "delta_qty": delta,
+                    "contracts": contracts, "resp": resp}
+        self._log(f"헤지 조정 실패: {resp.get('msg', resp)}", level="ERROR")
+        return {"status": "error", "resp": resp, "current": current,
+                "target": target_qty}
+
+    def close_all(self, price: float) -> dict:
+        """헤지 전량 종료."""
+        return self.adjust_short(0.0, price, min_delta_usd=0.0)

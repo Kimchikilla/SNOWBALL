@@ -20,9 +20,15 @@ from google import genai
 
 import config
 from market_analyzer import MarketAnalyzer, MarketSignal
-from grid_controller import GridController
+from grid_controller import GridController, HedgeController
 from multi_agent import MultiAgentJudge, format_consensus_for_telegram
 from cost_guard import CostGuard
+from risk_manager import (
+    RegimeDetector, RegimeState, DeriskLadder, DeriskDecision,
+    parse_derisk_levels, hedge_target_qty,
+    REGIME_RANGE, REGIME_TREND_UP, REGIME_TREND_DOWN,
+    DERISK_HEDGE, DERISK_STOP,
+)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -216,11 +222,15 @@ class OKXDataFetcher:
     def __init__(self):
         self.client = httpx.Client(base_url=config.OKX_BASE_URL, timeout=10)
 
-    def get_candles(self) -> list[dict]:
+    def get_candles(self, bar: str = None, limit: int = None) -> list[dict]:
         try:
             resp = self.client.get(
                 "/api/v5/market/candles",
-                params={"instId": config.SYMBOL, "bar": config.CANDLE_INTERVAL, "limit": config.CANDLE_LOOKBACK}
+                params={
+                    "instId": config.SYMBOL,
+                    "bar": bar or config.CANDLE_INTERVAL,
+                    "limit": limit or config.CANDLE_LOOKBACK,
+                }
             )
             data = resp.json().get("data", [])
             if not data:
@@ -331,6 +341,24 @@ class GridAgent:
         self.BREAKOUT_WAIT_SEC: int = config.BREAKOUT_WAIT_HOURS * 3600            # LLM 판단 요청까지 대기
         self.BREAKOUT_HARD_TIMEOUT_SEC: int = config.BREAKOUT_HARD_TIMEOUT_HOURS * 3600  # 강제 SHIFT 한도
         self._restored_bot_snapshot: dict = {}
+
+        # ─── 결정론적 리스크 관리 (2026-06-04 사고 사후 도입) ───
+        # 레짐 판별기: 일봉 기준 RANGE / TREND_UP / TREND_DOWN
+        self.regime_detector = RegimeDetector(
+            adx_min=config.REGIME_ADX_MIN,
+            slope_pct=config.REGIME_SLOPE_PCT,
+            confirm_ticks=config.REGIME_CONFIRM_TICKS,
+        )
+        self._regime_last_fetch: Optional[datetime] = None
+        self._last_regime_state: Optional[RegimeState] = None
+        # 단계적 디리스킹 래더 (-5% 헤지 50% / -8% 헤지 100% / -12% 청산)
+        self.derisk_ladder = DeriskLadder(parse_derisk_levels(config.DERISK_LEVELS))
+        # 선물 숏 헤지 컨트롤러
+        self.hedge = HedgeController(leverage=config.HEDGE_LEVERAGE) \
+            if config.HEDGE_ENABLED else None
+        self.hedge_qty: float = 0.0          # 현재 유지 중인 헤지 수량 (기초자산)
+        # 하단 존 선제 재배치 카운터
+        self.bottom_zone_ticks: int = 0
 
         # 날짜 롤오버 감지용
         self._current_date: str = datetime.now().strftime("%Y-%m-%d")
@@ -603,17 +631,20 @@ class GridAgent:
         print(f"  │ {BOLD}총점 = {score_color}{signal.risk_score:.1f}/100{RESET}  →  {emoji} {signal.state}")
         print(f"  └────────────────────────────────────────────┘")
 
-        # 3. 손절 체크
+        # 2.5 시장 레짐 갱신 (일봉, 결정론적)
+        regime = self._update_regime()
+        regime_color = RED if regime == REGIME_TREND_DOWN else \
+            GREEN if regime == REGIME_TREND_UP else YELLOW
+        print(f"  레짐 = {regime_color}{BOLD}{regime}{RESET}"
+              + (f"  ({self._last_regime_state.reason})" if self._last_regime_state else ""))
+
+        # 3. 손절 체크 (최후 백스톱 — 그 전에 DERISK 래더가 단계적으로 작동)
         print(f"\n{DIM}[3/10]{RESET} {BOLD}손절 조건 체크{RESET} ─ 평균단/총손익 기준 {config.MAX_LOSS_PERCENT}% 이상 손실?")
         try:
             stop_status = self._stop_loss_status(price)
             if stop_status["triggered"]:
                 print(f"  {RED}{BOLD}✗ 손절 조건 도달! 긴급 청산 실행{RESET}")
-                self.controller.emergency_stop()
-                self.notifier.send(
-                    f"💀 손절 청산 | {config.SYMBOL} | 현재가={price:,.0f}\n"
-                    f"사유: {stop_status['reason']}"
-                )
+                self._full_liquidation(price, reason=stop_status["reason"])
                 return
         except Exception as e:
             print(f"  {RED}✗ 체크 실패: {e}{RESET}")
@@ -647,6 +678,29 @@ class GridAgent:
                   f"{pnl_c}합계={total_day:+,.4f}{RESET}")
         except Exception as e:
             print(f"  {RED}✗ 감시 실패: {e}{RESET}")
+
+        # 4.3 결정론적 리스크 관리 (래더 / 헤지 / 하단 존)
+        print(f"\n{DIM}[4.5/10]{RESET} {BOLD}리스크 관리{RESET} ─ 디리스킹 래더 / 헤지 동기화 / 하단 존")
+        try:
+            risk_action = self._risk_management(signal, price)
+        except Exception as e:
+            print(f"  {RED}✗ 리스크 관리 실패: {e}{RESET}")
+            risk_action = None
+        if risk_action == "LIQUIDATED":
+            return  # 래더 최종 레벨 → 전량 청산 완료, 틱 종료
+        if risk_action in ("SHIFT_DOWN",):
+            # 하단 존 선제 재배치 → 즉시 실행
+            print(f"\n{DIM}[6/10]{RESET} {BOLD}액션 실행{RESET} ─ {CYAN}{risk_action} (선제 재배치){RESET}")
+            try:
+                self._execute(risk_action, signal, price)
+                print(f"  {GREEN}✓{RESET} 실행 완료")
+            except Exception as e:
+                print(f"  {RED}✗ 실행 실패: {e}{RESET}")
+            ac = CYAN
+            self._post_action_steps(signal, price, risk_action, trend, trend_strength,
+                                     emoji, score_color, trend_color, ac,
+                                     DIM, RESET, BOLD, GREEN, RED, YELLOW, CYAN)
+            return
 
         # 4.5 그리드 이탈 체크
         breakout_action = self._check_grid_breakout(signal, price)
@@ -991,11 +1045,9 @@ class GridAgent:
                 self._log(f"SHIFT_DOWN 실행 실패: {e}", level="ERROR")
 
         elif action == "STOP":
-            self.controller.emergency_stop()
-            self.notifier.send(
-                f"🔴 긴급 청산 완료 | {config.SYMBOL}\n"
-                f"리스크 점수: {signal.risk_score}/100\n"
-                f"사유: {signal.reason}"
+            self._full_liquidation(
+                price,
+                reason=f"에이전트 합의 STOP (리스크 점수 {signal.risk_score}/100: {signal.reason})",
             )
 
     # ─── 체결 감시 ─────────────────────────────────────────
@@ -1260,6 +1312,199 @@ class GridAgent:
             "reason": "; ".join(reasons),
         }
 
+    # ─── 결정론적 리스크 관리 (레짐 / 래더 / 헤지) ──────────
+
+    def _update_regime(self) -> str:
+        """일봉 캔들로 시장 레짐 갱신. REGIME_REFRESH_MIN 간격으로만 재조회.
+
+        조회 실패 시 마지막 확정 레짐을 유지한다 (보수적).
+        """
+        if not config.REGIME_FILTER_ENABLED:
+            return REGIME_RANGE
+
+        now = datetime.now()
+        if (self._regime_last_fetch is not None
+                and (now - self._regime_last_fetch).total_seconds()
+                < config.REGIME_REFRESH_MIN * 60):
+            return self.regime_detector.regime
+
+        try:
+            candles = self.fetcher.get_candles(
+                bar=config.REGIME_BAR, limit=config.REGIME_LOOKBACK
+            )
+            if not candles:
+                self._log("레짐: 일봉 조회 실패 → 마지막 레짐 유지", level="WARNING")
+                return self.regime_detector.regime
+
+            self._regime_last_fetch = now
+            prev = self.regime_detector.regime
+            state = self.regime_detector.update(candles)
+            self._last_regime_state = state
+
+            if state.confirmed and state.regime != prev:
+                emoji = {"TREND_DOWN": "🔻", "TREND_UP": "🔺", "RANGE": "↔️"}.get(state.regime, "")
+                self._log(f"{emoji} 레짐 전환 확정: {prev} → {state.regime} | {state.reason}",
+                          level="WARNING")
+                self.notifier.send(
+                    f"{emoji} 시장 레짐 전환 | {config.SYMBOL}\n"
+                    f"{'─' * 28}\n"
+                    f"{prev} → {state.regime}\n"
+                    f"{state.reason}\n"
+                    f"{'─' * 28}\n"
+                    + ("⚠️ 추세 하락 확정 — 헤지 가동 + 방어 SHIFT 허용 + 신규 매수 노출 경계"
+                       if state.regime == REGIME_TREND_DOWN
+                       else "박스권/상승 — 그리드 정상 운용")
+                )
+        except Exception as e:
+            self._log(f"레짐 갱신 실패: {e} → 마지막 레짐 유지", level="ERROR")
+
+        return self.regime_detector.regime
+
+    def _risk_management(self, signal, price: float) -> Optional[str]:
+        """디리스킹 래더 + 헤지 동기화 + 하단 존 선제 재배치.
+
+        Returns:
+            "LIQUIDATED"  — 래더 최종 레벨 발동, 전량 청산 완료 (틱 종료)
+            "SHIFT_DOWN"  — 하단 존 선제 재배치 필요 (호출자가 실행)
+            None          — 정상 (헤지 조정은 내부에서 수행)
+        """
+        metrics = self._position_metrics(price)
+        regime = self.regime_detector.regime
+
+        # 1) 디리스킹 래더 평가
+        decision = self.derisk_ladder.evaluate(metrics["total_pnl_pct"])
+        if decision is not None:
+            self._log(f"🪜 디리스킹 래더 발동: {decision.reason}", level="WARNING")
+            if decision.level.action == DERISK_STOP:
+                self._full_liquidation(price, reason=f"디리스킹 래더 최종 레벨: {decision.reason}")
+                return "LIQUIDATED"
+            self.notifier.send(
+                f"🪜 디리스킹 래더 L{decision.level_index} | {config.SYMBOL}\n"
+                f"{'─' * 28}\n"
+                f"{decision.reason}\n"
+                f"총손익: {metrics['total_pnl']:+,.2f} USDT "
+                f"({metrics['total_pnl_pct']:+.2f}%)\n"
+                f"보유: {metrics['qty']:.4f} @ 평단 {metrics['avg_buy']:,.2f}"
+            )
+
+        # 2) 헤지 동기화 (래더 + 레짐 + 재고 상한의 최댓값)
+        self._sync_hedge(metrics, price, regime)
+
+        # 3) 하단 존 선제 재배치 (TREND_DOWN 한정)
+        gl = self.controller.current_lower
+        gu = self.controller.current_upper
+        if (regime == REGIME_TREND_DOWN and gl is not None and gu is not None
+                and gu > gl and gl <= price <= gu):
+            range_pos = (price - gl) / (gu - gl) * 100
+            if range_pos <= config.BOTTOM_ZONE_PCT:
+                self.bottom_zone_ticks += 1
+                print(f"  하단 존 체류 {self.bottom_zone_ticks}/{config.BOTTOM_ZONE_CONFIRM_TICKS}틱 "
+                      f"(범위 내 위치 {range_pos:.1f}%)")
+                if self.bottom_zone_ticks >= config.BOTTOM_ZONE_CONFIRM_TICKS:
+                    allowed, skip_reason = self._check_restart_allowed("SHIFT_DOWN", price)
+                    if allowed:
+                        self.bottom_zone_ticks = 0
+                        self._log(
+                            f"📉 하단 존 선제 재배치: TREND_DOWN + 범위 내 위치 "
+                            f"{range_pos:.1f}% ≤ {config.BOTTOM_ZONE_PCT}% "
+                            f"{config.BOTTOM_ZONE_CONFIRM_TICKS}틱 지속",
+                            level="WARNING",
+                        )
+                        return "SHIFT_DOWN"
+                    self._log(f"하단 존 재배치 보류: {skip_reason}")
+            else:
+                self.bottom_zone_ticks = 0
+        else:
+            self.bottom_zone_ticks = 0
+
+        return None
+
+    def _sync_hedge(self, metrics: dict, price: float, regime: str):
+        """선물 숏 헤지를 목표 수량으로 동기화."""
+        if self.hedge is None:
+            # 헤지 비활성 시 래더 부분 레벨은 알림만으로 동작 (전량 청산 레벨은 그대로 작동)
+            return
+
+        cap_usd = metrics["grid_budget"] * config.INVENTORY_CAP_PCT / 100 \
+            if metrics["grid_budget"] > 0 else 0.0
+        target = hedge_target_qty(
+            holding_qty=metrics["qty"],
+            price=price,
+            regime=regime,
+            ladder_fraction=self.derisk_ladder.hedge_fraction(),
+            regime_hedge_ratio=config.HEDGE_RATIO,
+            inventory_cap_usd=cap_usd,
+            enabled=config.HEDGE_ENABLED,
+        )
+
+        result = self.hedge.adjust_short(
+            target, price, min_delta_usd=config.HEDGE_MIN_DELTA_USD
+        )
+        status = result.get("status", "")
+        if status == "adjusted":
+            self.hedge_qty = target
+            delta = result.get("delta_qty", 0.0)
+            self.notifier.send(
+                f"🛡️ 헤지 조정 | {self.hedge.inst_id}\n"
+                f"{'─' * 28}\n"
+                f"숏 {result.get('current', 0):.4f} → {target:.4f} "
+                f"({'+' if delta > 0 else ''}{delta:.4f})\n"
+                f"레짐: {regime} | 래더 L{self.derisk_ladder.current_level}\n"
+                f"재고: {metrics['qty']:.4f} | 노출: {metrics['exposure']:,.0f} USDT\n"
+                f"→ 방향 노출 중립화, 그리드 회전은 계속"
+            )
+        elif status in ("skip_small_delta", "skip_below_lot"):
+            self.hedge_qty = result.get("current", self.hedge_qty)
+        elif status == "error":
+            self._log("헤지 조정 실패 — 다음 틱 재시도", level="ERROR")
+        print(f"  헤지: 목표 {target:.4f} | 상태 {status or 'n/a'} | 레짐 {regime}")
+
+    def _full_liquidation(self, price: float, reason: str):
+        """검증된 전량 청산: 봇 정지+매도 → 잔고 확인 → 잔존 시 직접 매도 → 헤지 종료.
+
+        2026-06-04 사고(stopType 버그로 ETH 37.5개 잔존) 재발 방지 경로.
+        """
+        result = self.controller.emergency_stop(verify=True)
+        verification = result.get("verification", {})
+        flat = verification.get("flat", False)
+        remaining = verification.get("remaining_qty", 0.0)
+
+        # 재고가 없어졌으니 헤지도 종료 (naked short 방지)
+        if self.hedge is not None:
+            try:
+                self.hedge.close_all(price)
+                self.hedge_qty = 0.0
+            except Exception as e:
+                self._log(f"헤지 종료 실패 — 수동 확인 필요: {e}", level="CRITICAL")
+
+        self.derisk_ladder.current_level = 0
+
+        # 내부 포지션 장부 정리: 매도분의 손익을 실현으로 옮긴다.
+        # (정리하지 않으면 다음 틱마다 손절이 재발동해 알림이 폭주한다)
+        avg_buy = self.holding_cost / self.holding_qty if self.holding_qty > 0 else 0.0
+        sold_qty = max(self.holding_qty - max(remaining, 0.0), 0.0)
+        if sold_qty > 0 and avg_buy > 0:
+            self.realized_pnl += (price - avg_buy) * sold_qty
+            self.daily_realized += (price - avg_buy) * sold_qty
+        self.holding_qty = max(remaining, 0.0) if not flat else 0.0
+        self.holding_cost = avg_buy * self.holding_qty
+        self.entry_price = None
+
+        if flat:
+            self.notifier.send(
+                f"💀 손절 청산 완료 (검증됨) | {config.SYMBOL} | 현재가={price:,.0f}\n"
+                f"사유: {reason}\n"
+                f"✅ 잔고 검증: 기초자산 청산 확인"
+            )
+        else:
+            self.notifier.send(
+                f"🚨 손절 청산 — 검증 실패! | {config.SYMBOL} | 현재가={price:,.0f}\n"
+                f"사유: {reason}\n"
+                f"⚠️ 잔존 수량: {remaining:.6f} — 수동 확인 필요!\n"
+                f"(자동 시장가 매도 재시도 후에도 잔존)"
+            )
+            self._log(f"청산 검증 실패: {remaining:.6f} 잔존", level="CRITICAL")
+
     def _build_fee_context(self, current_price: float) -> str:
         """에이전트에게 제공할 수수료/손익/운영 컨텍스트.
 
@@ -1290,7 +1535,29 @@ class GridAgent:
         # 당일 체결 횟수
         today_fills = self.daily_buys + self.daily_sells
 
+        # ─── 시장 레짐 컨텍스트 (결정론적 분류기 산출) ───
+        regime = self.regime_detector.regime
+        regime_detail = ""
+        if self._last_regime_state is not None:
+            regime_detail = f" | {self._last_regime_state.reason}"
+        if regime == REGIME_TREND_DOWN:
+            regime_ctx = (
+                f"\n=== 시장 레짐 (코드 레벨 확정) ===\n"
+                f"🔻 TREND_DOWN — 일봉 추세 하락 확정{regime_detail}\n"
+                f"⚠️ 이 레짐에서는 입증 책임이 역전됩니다: 방어 액션(SHIFT_DOWN, 재고 축소)이\n"
+                f"   디폴트이고, MAINTAIN을 주장하는 쪽이 근거를 입증해야 합니다.\n"
+                f"   '버티면 회복한다'는 박스권 가정이며, 현재 레짐에서는 성립하지 않습니다.\n"
+                f"   하락 레짐에서 '정지/축소의 기회비용'은 없습니다 — 봇을 돌리는 것이 비용입니다.\n"
+            )
+        else:
+            regime_ctx = (
+                f"\n=== 시장 레짐 (코드 레벨 확정) ===\n"
+                f"{'↔️ RANGE — 박스권' if regime == REGIME_RANGE else '🔺 TREND_UP — 추세 상승'}"
+                f"{regime_detail}\n"
+            )
+
         return (
+            regime_ctx +
             f"\n=== 봇 운영 현황 (정지의 기회비용 인식용) ===\n"
             f"누적 실현 손익: {self.realized_pnl:+,.2f} USDT\n"
             f"총 손익(실현+미실현): {total_pnl:+,.2f} USDT ({total_pnl_pct:+.2f}% of grid budget)\n"
@@ -1431,6 +1698,13 @@ class GridAgent:
         if len(recent) >= 2:
             return False, f"1시간 내 재시작 {len(recent)}회 도달 (최대 2회)"
 
+        # 방어적 재배치 예외: TREND_DOWN 레짐의 SHIFT_DOWN은 수수료 효율이 아니라
+        # 리스크 축소가 목적이므로 수수료 가드를 적용하지 않는다 (재시작 횟수 제한은 유지).
+        # 2026-05-29 "재배치 수수료 ~$77 아끼려다 -$5,642" 사고 교훈:
+        # 비교 대상은 '수수료 vs 당일 수익'이 아니라 '수수료 vs 방치 시 기대 손실'이다.
+        if action == "SHIFT_DOWN" and self.regime_detector.regime == REGIME_TREND_DOWN:
+            return True, ""
+
         # 수수료 가드: 예상 수수료 > 최근 실현 수익이면 차단.
         # WIDEN is especially dangerous because it restarts the bot while keeping
         # the same inventory risk; require either realized edge or a breakout/risk reason.
@@ -1521,6 +1795,11 @@ class GridAgent:
                 "current_upper": self.controller.current_upper,
                 "current_grid_num": self.controller.current_grid_num,
                 "current_mode": self.controller.current_mode,
+                # 리스크 관리 상태
+                "regime": self.regime_detector.to_state(),
+                "derisk_ladder": self.derisk_ladder.to_state(),
+                "hedge_qty": self.hedge_qty,
+                "bottom_zone_ticks": self.bottom_zone_ticks,
                 # 메타
                 "symbol": config.SYMBOL,
             }
@@ -1605,6 +1884,18 @@ class GridAgent:
             self.entry_price = None
         self.last_fill_id = state.get("last_fill_id")
 
+        # 리스크 관리 상태 복원
+        self.regime_detector.from_state(state.get("regime", {}))
+        self.derisk_ladder.from_state(state.get("derisk_ladder", {}))
+        try:
+            self.hedge_qty = max(float(state.get("hedge_qty", 0.0)), 0.0)
+        except (TypeError, ValueError):
+            self.hedge_qty = 0.0
+        try:
+            self.bottom_zone_ticks = max(int(state.get("bottom_zone_ticks", 0)), 0)
+        except (TypeError, ValueError):
+            self.bottom_zone_ticks = 0
+
         # 당일 카운터: 같은 날짜일 때만 복원
         if same_day:
             self.daily_buys = int(state.get("daily_buys", 0))
@@ -1654,21 +1945,31 @@ class GridAgent:
         now = datetime.now()
 
         # ── 범위 안이면 이탈 상태 리셋 ──
-        if gl <= price <= gu:
-            if self.grid_breakout_time is not None:
-                elapsed = (now - self.grid_breakout_time).total_seconds()
-                self._log(f"✅ 그리드 범위 복귀 (이탈 {elapsed/60:.0f}분 만)")
-                self.notifier.send(
-                    f"✅ 그리드 범위 복귀 | {config.SYMBOL}\n"
-                    f"{'─' * 28}\n"
-                    f"현재가: {price:,.2f} USDT\n"
-                    f"범위: {gl:,.2f} ~ {gu:,.2f}\n"
-                    f"이탈 시간: {elapsed/60:.0f}분\n"
-                    f"→ 자동 매매 재개"
-                )
-                self.grid_breakout_time = None
-                self.grid_breakout_dir = None
-                self.grid_breakout_notified = False
+        # 히스테리시스: 이탈 타이머가 돌고 있으면 경계에서 버퍼(%)만큼
+        # 안쪽으로 들어와야 리셋한다. 경계를 들락거리는 완만한 붕괴에서
+        # 타이머가 매번 리셋되어 이탈 시간이 누적되지 않던 결함 수정 (5/23~5/31 실측).
+        buffer = config.BREAKOUT_REENTRY_BUFFER_PCT / 100
+        reset_lower = gl * (1 + buffer) if self.grid_breakout_dir == "BELOW" else gl
+        reset_upper = gu * (1 - buffer) if self.grid_breakout_dir == "ABOVE" else gu
+        if self.grid_breakout_time is None and gl <= price <= gu:
+            return None
+        if self.grid_breakout_time is not None and reset_lower <= price <= reset_upper:
+            elapsed = (now - self.grid_breakout_time).total_seconds()
+            self._log(f"✅ 그리드 범위 복귀 (이탈 {elapsed/60:.0f}분 만, 버퍼 {buffer*100:.1f}% 통과)")
+            self.notifier.send(
+                f"✅ 그리드 범위 복귀 | {config.SYMBOL}\n"
+                f"{'─' * 28}\n"
+                f"현재가: {price:,.2f} USDT\n"
+                f"범위: {gl:,.2f} ~ {gu:,.2f}\n"
+                f"이탈 시간: {elapsed/60:.0f}분\n"
+                f"→ 자동 매매 재개"
+            )
+            self.grid_breakout_time = None
+            self.grid_breakout_dir = None
+            self.grid_breakout_notified = False
+            return None
+        if self.grid_breakout_time is not None and gl <= price <= gu:
+            # 범위 안이지만 버퍼 미통과 → 타이머 유지, 정상 흐름 (얕은 복귀)
             return None
 
         # ── 이탈 감지 ──
@@ -1708,11 +2009,24 @@ class GridAgent:
                 f"가격이 범위로 돌아오면 자동 매매 재개"
             )
 
+        # ── 패스트패스: TREND_DOWN 레짐 + 하단 이탈 → 짧은 확인 후 즉시 방어 SHIFT ──
+        # 추세 하락에서 24h+ 대기는 손실 확대 시간일 뿐 (2026-06-04 사고 교훈).
+        fast_path = (
+            self.regime_detector.regime == REGIME_TREND_DOWN
+            and direction == "BELOW"
+            and elapsed >= config.BREAKOUT_TREND_FAST_HOURS * 3600
+        )
+
         # ── 하드 타임아웃: LLM 무시하고 강제 재배치 ──
-        if elapsed >= self.BREAKOUT_HARD_TIMEOUT_SEC:
+        if fast_path or elapsed >= self.BREAKOUT_HARD_TIMEOUT_SEC:
             hard_hr = self.BREAKOUT_HARD_TIMEOUT_SEC / 3600
+            trigger = (
+                f"TREND_DOWN 패스트패스 ({config.BREAKOUT_TREND_FAST_HOURS:.1f}h)"
+                if fast_path and elapsed < self.BREAKOUT_HARD_TIMEOUT_SEC
+                else f"하드 타임아웃 {hard_hr:.0f}h"
+            )
             self._log(
-                f"🚨 이탈 {elapsed_hr:.1f}h ≥ 하드 타임아웃 {hard_hr:.0f}h "
+                f"🚨 이탈 {elapsed_hr:.1f}h ≥ {trigger} "
                 f"→ LLM 건너뛰고 강제 재배치",
                 level="WARNING"
             )
@@ -1721,14 +2035,14 @@ class GridAgent:
             if not allowed:
                 self._log(f"수수료 가드 차단: {skip_reason} → 대기 유지", level="WARNING")
                 self.notifier.send(
-                    f"🛡️ 하드 타임아웃 강제 재배치 차단 | {config.SYMBOL}\n"
+                    f"🛡️ 강제 재배치 차단 ({trigger}) | {config.SYMBOL}\n"
                     f"이탈: {elapsed_hr:.1f}h\n"
                     f"사유: {skip_reason}"
                 )
-                # 타이머 1시간 뒤로 리셋 (매 틱 재시도 방지)
-                self.grid_breakout_time = now - timedelta(
-                    seconds=self.BREAKOUT_HARD_TIMEOUT_SEC - 3600
-                )
+                # 타이머를 트리거 직전으로 되돌려 30분 후 재시도 (매 틱 재시도 방지)
+                retry_base = (config.BREAKOUT_TREND_FAST_HOURS * 3600 if fast_path
+                              else self.BREAKOUT_HARD_TIMEOUT_SEC)
+                self.grid_breakout_time = now - timedelta(seconds=retry_base - 1800)
                 return "MAINTAIN"
 
             self._record_grid_restart()
@@ -1739,9 +2053,9 @@ class GridAgent:
             self.grid_breakout_dir = None
             self.grid_breakout_notified = False
             self.notifier.send(
-                f"🚨 하드 타임아웃 강제 재배치 | {config.SYMBOL}\n"
+                f"🚨 강제 재배치 ({trigger}) | {config.SYMBOL}\n"
                 f"{'─' * 28}\n"
-                f"이탈 {elapsed_hr:.1f}시간 경과 (한도 {hard_hr:.0f}h)\n"
+                f"이탈 {elapsed_hr:.1f}시간 경과\n"
                 f"이전: {old_lower:,.2f} ~ {old_upper:,.2f}\n"
                 f"새 범위: {self.controller.current_lower:,.2f} ~ "
                 f"{self.controller.current_upper:,.2f}\n"
