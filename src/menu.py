@@ -12,6 +12,8 @@ import httpx
 import questionary
 from questionary import Choice, Style
 
+import ui
+
 
 # ─── 한글 더블 위드 대응 유틸 ────────────────────────────────
 
@@ -64,14 +66,6 @@ STYLE = Style([
     ("instruction", "fg:gray"),
 ])
 
-BANNER = """
-╔══════════════════════════════════════════════════╗
-║            ❄️  Snowball Agent  ❄️                ║
-║         OKX Adaptive Grid Trading Agent          ║
-╚══════════════════════════════════════════════════╝
-"""
-
-
 # ─── 유틸 ────────────────────────────────────────────────
 
 def clear():
@@ -79,19 +73,14 @@ def clear():
 
 
 def print_disclaimer():
-    RED = "\033[91m"
-    BOLD = "\033[1m"
-    RESET = "\033[0m"
-    print(f"{RED}  ⚠️  이 소프트웨어는 투자 조언이 아니며, 모든 손실은{RESET}")
-    print(f"{RED}  사용자 본인 책임입니다. 감당 가능한 금액만 투자하세요.{RESET}")
-    print()
+    ui.disclaimer()
 
 
 def header(title: str = ""):
     clear()
-    print(BANNER)
+    ui.banner()
     if title:
-        print(f"  [{title}]")
+        print(f" {ui.c('›', ui.ACCENT)} {ui.c(title, bold=True)}")
         print()
 
 
@@ -596,31 +585,26 @@ def _apply_grid_settings(env: dict, total_budget: float, settings: dict):
 def _print_grid_summary(settings: dict, total_budget: float,
                         current_price: float, warnings: list[str],
                         title: str = "그리드 설정"):
-    """검증된 그리드 설정 요약 박스 출력."""
-    W = 46
+    """검증된 그리드 설정 요약 패널 출력."""
     grid_budget = settings["grid_budget"]
     reserve = round(total_budget - grid_budget, 2)
     grid_pct = grid_budget / total_budget * 100 if total_budget > 0 else 0
 
     print()
-    print(f"  ┌{'─' * W}┐")
-    print(_box_line(title, W))
-    print(f"  ├{'─' * W}┤")
-    print(_box_line(f"그리드 예산 : {grid_budget:>12,.0f} USDT ({grid_pct:.0f}%)", W))
-    print(_box_line(f"예비 자금   : {reserve:>12,.0f} USDT ({100 - grid_pct:.0f}%)", W))
-    print(f"  ├{'─' * W}┤")
-    print(_box_line(f"현재가      : {current_price:>15,.2f} USDT", W))
-    print(_box_line(f"하단 가격   : {settings['grid_lower']:>15,.2f} USDT", W))
-    print(_box_line(f"상단 가격   : {settings['grid_upper']:>15,.2f} USDT", W))
-    print(_box_line(f"그리드 개수 : {settings['grid_count']:>15} 개", W))
-    print(_box_line(f"라인당 주문 : {settings['per_grid_usdt']:>15,.2f} USDT", W))
-    print(_box_line(f"간격        : {settings['spacing_pct']:>14,.2f} %", W))
-    print(_box_line(f"모드        : {settings['grid_mode']:>15}", W))
-    print(f"  └{'─' * W}┘")
+    ui.panel_kv(title, [
+        ("그리드 예산", f"{grid_budget:,.0f} USDT ({grid_pct:.0f}%)"),
+        ("예비 자금", f"{reserve:,.0f} USDT ({100 - grid_pct:.0f}%)"),
+        ("─", ""),
+        ("현재가", f"{current_price:,.2f} USDT"),
+        ("범위", f"{settings['grid_lower']:,.2f} ~ {settings['grid_upper']:,.2f}"),
+        ("그리드", f"{settings['grid_count']}개 ({settings['grid_mode']})"),
+        ("라인당 주문", f"{settings['per_grid_usdt']:,.2f} USDT"),
+        ("간격", f"{settings['spacing_pct']:.2f} %"),
+    ], label_w=12)
     if warnings:
         print()
         for w in warnings:
-            print(f"  ⚠ {_vtrunc(w, 70) if _vw(w) > 70 else w}")
+            print(f"  {ui.c('⚠', ui.YELLOW)} {ui.c(_vtrunc(w, 70) if _vw(w) > 70 else w, ui.YELLOW)}")
     print()
 
 
@@ -1510,15 +1494,6 @@ def view_settings():
         return
 
     mode = "Demo" if env.get("DEMO_MODE", "true") == "true" else "Live"
-    W = 44
-    L = 12  # 라벨 폭
-    V = W - L - 2  # 값 폭 (": " 포함)
-
-    def _row(label, value):
-        val_str = str(value)
-        if _vw(val_str) > V:
-            val_str = _vtrunc(val_str, V)
-        return _box_line(f"{_vpad(label, L)}: {_vpad(val_str, V)}", W)
 
     total = env.get("TOTAL_BUDGET", "-")
     grid_b = env.get("GRID_BUDGET", "-")
@@ -1526,34 +1501,32 @@ def view_settings():
     if reserve is None and _is_number(total) and _is_number(grid_b):
         reserve = str(round(float(total) - float(grid_b), 2))
 
-    print(f"  ┌{'─' * W}┐")
-    print(_row("OKX API", mask(env.get("OKX_API_KEY", ""))))
-    print(_row("거래 모드", mode))
-    print(f"  ├{'─' * W}┤")
-    print(_row("심볼", env.get("SYMBOL", "-")))
-    print(_row("총 예산", total + " USDT"))
-    print(_row("그리드 예산", grid_b + " USDT"))
-    print(_row("예비 자금", (reserve or "-") + " USDT"))
-    grid_range = env.get("GRID_LOWER", "-") + " ~ " + env.get("GRID_UPPER", "-")
-    print(_row("그리드 범위", grid_range))
-    print(_row("그리드 개수", env.get("GRID_COUNT", "-")))
-    print(_row("그리드 모드", env.get("GRID_MODE", "-")))
-    print(f"  ├{'─' * W}┤")
     regime_on = env.get("REGIME_FILTER_ENABLED", "true") == "true"
     hedge_on = env.get("HEDGE_ENABLED", "true") == "true"
-    print(_row("레짐 필터", "ON (일봉 추세 감지)" if regime_on else "OFF"))
-    print(_row("숏 헤지", f"ON (비율 {env.get('HEDGE_RATIO', '1.0')})" if hedge_on else "OFF"))
-    print(_row("래더", env.get("DERISK_LEVELS", "5:0.5,8:1.0,12:stop")))
-    print(_row("손절 백스톱", env.get("MAX_LOSS_PERCENT", "15") + "%"))
-    print(f"  ├{'─' * W}┤")
+    grid_range = env.get("GRID_LOWER", "-") + " ~ " + env.get("GRID_UPPER", "-")
     llm_info = f"{env.get('LLM_PROVIDER', '-')} / {env.get('LLM_MODEL', '-')}"
-    print(_row("LLM", llm_info))
-    print(_row("LLM Key", mask(env.get("LLM_API_KEY", ""))))
-    print(f"  ├{'─' * W}┤")
-    tg = "ON" if env.get("TELEGRAM_TOKEN") else "OFF"
-    print(_row("텔레그램", tg))
-    print(_row("루프 간격", env.get("LOOP_INTERVAL_SEC", "120") + "s"))
-    print(f"  └{'─' * W}┘")
+
+    ui.panel_kv("현재 설정", [
+        ("OKX API", mask(env.get("OKX_API_KEY", ""))),
+        ("거래 모드", mode),
+        ("─", ""),
+        ("심볼", env.get("SYMBOL", "-")),
+        ("총 예산", total + " USDT"),
+        ("그리드 예산", grid_b + " USDT"),
+        ("예비 자금", (reserve or "-") + " USDT"),
+        ("그리드 범위", grid_range),
+        ("그리드", f"{env.get('GRID_COUNT', '-')}개 ({env.get('GRID_MODE', '-')})"),
+        ("─", ""),
+        ("레짐 필터", "ON (일봉 추세 감지)" if regime_on else "OFF"),
+        ("숏 헤지", f"ON (비율 {env.get('HEDGE_RATIO', '1.0')})" if hedge_on else "OFF"),
+        ("래더", env.get("DERISK_LEVELS", "5:0.5,8:1.0,12:stop")),
+        ("손절 백스톱", env.get("MAX_LOSS_PERCENT", "15") + "%"),
+        ("─", ""),
+        ("LLM", _vtrunc(llm_info, 40) if _vw(llm_info) > 40 else llm_info),
+        ("LLM Key", mask(env.get("LLM_API_KEY", ""))),
+        ("텔레그램", "ON" if env.get("TELEGRAM_TOKEN") else "OFF"),
+        ("루프 간격", env.get("LOOP_INTERVAL_SEC", "120") + "s"),
+    ], label_w=12)
     pause()
 
 
@@ -1579,51 +1552,45 @@ def view_account_status():
     symbol = env.get("SYMBOL", "ETH-USDT")
     price = fetch_price(symbol)
 
-    W = 46
     print()
     if balances is None:
-        print("  ❌ 잔고 조회 실패 — API 키/네트워크를 확인해주세요.")
+        print(f"  {ui.c('❌ 잔고 조회 실패 — API 키/네트워크를 확인해주세요.', ui.RED)}")
     elif not balances:
-        print("  (보유 자산 없음)")
+        print(f"  {ui.c('(보유 자산 없음)', ui.GRAY)}")
     else:
-        print(f"  ┌{'─' * W}┐")
-        print(_box_line("보유 자산", W))
-        print(f"  ├{'─' * W}┤")
-        total_usd = 0.0
-        for ccy, info in sorted(balances.items(), key=lambda kv: -kv[1]["eq_usd"]):
-            total_usd += info["eq_usd"]
-            print(_box_line(
-                f"{_vpad(ccy, 6)} {info['total']:>16,.4f}  (${info['eq_usd']:>11,.2f})", W))
-        print(f"  ├{'─' * W}┤")
-        print(_box_line(f"{_vpad('합계', 6)} {'':>16}  (${total_usd:>11,.2f})", W))
-        print(f"  └{'─' * W}┘")
+        total_usd = sum(info["eq_usd"] for info in balances.values())
+        pairs = [
+            (ccy, f"{info['total']:,.4f}  (${info['eq_usd']:,.2f})")
+            for ccy, info in sorted(balances.items(), key=lambda kv: -kv[1]["eq_usd"])
+        ]
+        pairs.append(("─", ""))
+        pairs.append(("합계", f"${total_usd:,.2f}"))
+        ui.panel_kv("보유 자산", pairs, label_w=8)
 
     print()
     if bots is None:
-        print("  ❌ 그리드봇 조회 실패")
+        print(f"  {ui.c('❌ 그리드봇 조회 실패', ui.RED)}")
     elif not bots:
-        print("  실행 중인 그리드봇 없음 — 시작 시 새 봇이 생성됩니다.")
+        print(f"  {ui.c('실행 중인 그리드봇 없음 — 시작 시 새 봇이 생성됩니다.', ui.GRAY)}")
         if price and _is_number(env.get("GRID_BUDGET", "")):
             quote = symbol.split("-")[1] if "-" in symbol else "USDT"
             avail = (balances or {}).get(quote, {}).get("available")
             need = float(env["GRID_BUDGET"])
             if avail is not None:
-                ok = "✅ 충분" if avail >= need else f"❌ 부족 ({need - avail:,.2f} 모자람)"
+                ok = ui.c("✅ 충분", ui.GREEN) if avail >= need \
+                    else ui.c(f"❌ 부족 ({need - avail:,.2f} 모자람)", ui.RED)
                 print(f"  시작 예산 체크: 필요 {need:,.2f} / 가용 {avail:,.2f} → {ok}")
     else:
-        print(f"  ┌{'─' * W}┐")
-        print(_box_line(f"활성 그리드봇 {len(bots)}개", W))
-        print(f"  ├{'─' * W}┤")
+        pairs = []
         for b in bots:
             inst = b.get("instId", "?")
             rng = f"{float(b.get('minPx', 0)):,.0f}~{float(b.get('maxPx', 0)):,.0f}"
             pnl = float(b.get("totalPnl", 0) or 0)
-            emoji = "📈" if pnl >= 0 else "📉"
-            print(_box_line(f"{inst} {rng} {emoji} {pnl:+,.2f}", W))
-        print(f"  └{'─' * W}┘")
+            pairs.append((inst.split("-")[0], f"{rng}  {ui.pnl_c(pnl)} USDT"))
+        ui.panel_kv(f"활성 그리드봇 {len(bots)}개", pairs, color=ui.GREEN, label_w=8)
 
     if price:
-        print(f"\n  {symbol} 현재가: {price:,.2f} USDT")
+        print(f"\n  {symbol} 현재가: {ui.c(f'{price:,.2f}', ui.WHITE, bold=True)} USDT")
     pause()
 
 

@@ -19,6 +19,7 @@ import openai
 from google import genai
 
 import config
+import ui
 from market_analyzer import MarketAnalyzer, MarketSignal
 from grid_controller import GridController, HedgeController
 from multi_agent import MultiAgentJudge, format_consensus_for_telegram
@@ -368,21 +369,8 @@ class GridAgent:
 
     @staticmethod
     def _print_disclaimer():
-        RED = "\033[91m"
-        BOLD = "\033[1m"
-        RESET = "\033[0m"
-        print()
-        print(f"{RED}{'═' * 56}{RESET}")
-        print(f"{RED}{BOLD}  ⚠️  투자 위험 경고{RESET}")
-        print(f"{RED}{'═' * 56}{RESET}")
-        print(f"{RED}  이 소프트웨어는 투자 조언이 아닙니다.{RESET}")
-        print(f"{RED}  본 프로그램 사용으로 발생하는 모든 금전적 손실에 대한{RESET}")
-        print(f"{RED}  책임은 전적으로 사용자 본인에게 있습니다.{RESET}")
-        print(f"{RED}  암호화폐 거래는 원금 손실 위험이 있으며,{RESET}")
-        print(f"{RED}  과거 수익이 미래 수익을 보장하지 않습니다.{RESET}")
-        print(f"{RED}  반드시 감당 가능한 금액만 투자하세요.{RESET}")
-        print(f"{RED}{'═' * 56}{RESET}")
-        print()
+        ui.banner()
+        ui.disclaimer()
 
     def run(self):
         """무한 루프 실행."""
@@ -402,19 +390,21 @@ class GridAgent:
 
         if resp.get("status") == "synced":
             # 기존 봇에 동기화 성공
-            print(f"\n{GREEN}{BOLD}{'═' * 56}{RESET}")
-            print(f"{GREEN}{BOLD}  ✅ 기존 그리드봇에 연결되었습니다{RESET}")
-            print(f"{GREEN}{'═' * 56}{RESET}")
-            print(f"  봇 ID    : {resp.get('bot_id')}")
-            print(f"  상태     : {resp.get('state')}")
-            print(f"  범위     : {resp.get('lower'):,.2f} ~ {resp.get('upper'):,.2f}")
-            print(f"  그리드   : {resp.get('grid_num')}개 ({resp.get('mode')})")
-            print(f"  투자금   : {resp.get('investment'):,.2f} USDT")
             pnl = resp.get('total_pnl', 0)
-            pnl_color = GREEN if pnl >= 0 else RED
-            print(f"  현재 손익 : {pnl_color}{pnl:+,.2f} USDT{RESET}")
-            print(f"{GREEN}{'─' * 56}{RESET}")
-            print(f"  {CYAN}기존 설정에 맞춰 에이전트를 시작합니다.{RESET}\n")
+            print()
+            ui.panel_kv(
+                "기존 그리드봇 연결됨",
+                [
+                    ("봇 ID", str(resp.get("bot_id"))),
+                    ("상태", str(resp.get("state"))),
+                    ("범위", f"{resp.get('lower'):,.2f} ~ {resp.get('upper'):,.2f}"),
+                    ("그리드", f"{resp.get('grid_num')}개 ({resp.get('mode')})"),
+                    ("투자금", f"{resp.get('investment'):,.2f} USDT"),
+                    ("손익", ui.pnl_c(pnl) + " USDT"),
+                ],
+                color=ui.GREEN,
+            )
+            print(f"  {ui.c('기존 설정에 맞춰 에이전트를 시작합니다.', ui.GRAY)}\n")
 
             # Only initialize entry_price when there is no restored state.
             # Risk checks use the live average cost when holdings exist.
@@ -568,14 +558,6 @@ class GridAgent:
     def _tick(self):
         self.loop_count += 1
         ts = datetime.now().strftime("%H:%M:%S")
-        DIM = "\033[2m"
-        RESET = "\033[0m"
-        CYAN = "\033[96m"
-        YELLOW = "\033[93m"
-        GREEN = "\033[92m"
-        RED = "\033[91m"
-        MAGENTA = "\033[95m"
-        BOLD = "\033[1m"
 
         # 자정 기준 일일 카운터 리셋
         today = datetime.now().strftime("%Y-%m-%d")
@@ -594,128 +576,124 @@ class GridAgent:
             self.grid_restart_count = 0
             self._log("📅 날짜 변경 — 일일 카운터 리셋")
 
+        # ── 헤드라인: ● 시각 · 틱 · 심볼 · 현재가 ──
         print()
-        print(f"{CYAN}{BOLD}{'═' * 60}{RESET}")
-        print(f"{CYAN}{BOLD}  TICK #{self.loop_count}  [{ts}]  {config.SYMBOL}{RESET}")
-        print(f"{CYAN}{'═' * 60}{RESET}")
 
         # 1. 데이터 수집
-        print(f"\n{DIM}[1/10]{RESET} {BOLD}데이터 수집{RESET} ─ OKX API 호출 중...")
         try:
             candles = self.fetcher.get_candles()
             price   = self.fetcher.get_current_price()
         except Exception as e:
-            print(f"  {RED}✗ 실패: {e}{RESET}")
+            ui.bullet(f"틱 #{self.loop_count} {ui.c(ts, ui.GRAY)}", ui.RED)
+            ui.child_err(f"데이터 수집 실패: {e}", "수집")
             return
 
-        if price is None:
-            print(f"  {RED}✗ 현재 가격 조회 불가 — 스킵{RESET}")
+        if price is None or not candles:
+            ui.bullet(f"틱 #{self.loop_count} {ui.c(ts, ui.GRAY)}", ui.RED)
+            ui.child_err("현재가/캔들 조회 불가 — 이번 틱 스킵", "수집")
             return
-        if not candles:
-            print(f"  {RED}✗ 캔들 데이터 없음 — 스킵{RESET}")
-            return
-        print(f"  {GREEN}✓{RESET} 현재가: {BOLD}{price:,.0f} USDT{RESET} | 캔들: {len(candles)}개")
 
         # 2. 리스크 분석
-        print(f"\n{DIM}[2/10]{RESET} {BOLD}리스크 분석{RESET} ─ ATR / RSI / BB / Volume / EMA / ADX")
         try:
             signal = self.analyzer.analyze(candles)
         except Exception as e:
-            print(f"  {RED}✗ 분석 실패: {e}{RESET}")
+            ui.bullet(f"틱 #{self.loop_count} {ui.c(ts, ui.GRAY)}", ui.RED)
+            ui.child_err(f"분석 실패: {e}", "분석")
             return
 
         trend = getattr(signal, "trend", "N/A")
         trend_strength = getattr(signal, "trend_strength", 0.0)
         ema_s = getattr(signal, "ema_short", 0)
         ema_l = getattr(signal, "ema_long", 0)
-        state_emoji = {"NORMAL": "🟢", "CAUTION": "🟡", "WARNING": "🟠", "EMERGENCY": "🔴"}
-        emoji = state_emoji.get(signal.state, "⚪")
-
-        print(f"  ┌────────────────────────────────────────────┐")
-        print(f"  │ ATR  = {signal.atr_score:>5.1f}/30  (현재={signal.atr_current:.1f} 평균={signal.atr_avg:.1f})")
-        print(f"  │ RSI  = {signal.rsi_score:>5.1f}/25  (RSI={signal.rsi:.1f})")
-        print(f"  │ BB   = {signal.bb_score:>5.1f}/25  (폭={signal.bb_width:.2f}%)")
-        print(f"  │ Vol  = {signal.volume_score:>5.1f}/20  (배율={signal.volume_ratio:.1f}x)")
-        print(f"  ├────────────────────────────────────────────┤")
-
-        trend_color = GREEN if trend == "BULLISH" else RED if trend == "BEARISH" else YELLOW
-        print(f"  │ 추세 = {trend_color}{BOLD}{trend}{RESET}  (ADX={trend_strength:.1f})")
-        print(f"  │ EMA  = 단기 {ema_s:,.1f} / 장기 {ema_l:,.1f}")
-        print(f"  ├────────────────────────────────────────────┤")
-
-        score_color = GREEN if signal.risk_score <= 30 else YELLOW if signal.risk_score <= 60 else RED
-        print(f"  │ {BOLD}총점 = {score_color}{signal.risk_score:.1f}/100{RESET}  →  {emoji} {signal.state}")
-        print(f"  └────────────────────────────────────────────┘")
+        state_color = ui.STATE_COLOR.get(signal.state, ui.GRAY)
 
         # 2.5 시장 레짐 갱신 (일봉, 결정론적)
         regime = self._update_regime()
-        regime_color = RED if regime == REGIME_TREND_DOWN else \
-            GREEN if regime == REGIME_TREND_UP else YELLOW
-        print(f"  레짐 = {regime_color}{BOLD}{regime}{RESET}"
-              + (f"  ({self._last_regime_state.reason})" if self._last_regime_state else ""))
+
+        ui.bullet(
+            f"{ui.c(f'틱 #{self.loop_count}', bold=True)}"
+            f"{ui.sep()}{ui.c(ts, ui.GRAY)}"
+            f"{ui.sep()}{config.SYMBOL} {ui.c(f'{price:,.2f}', ui.WHITE, bold=True)}"
+            f"{ui.sep()}{ui.c(signal.state, state_color, bold=True)} "
+            f"{ui.c(f'{signal.risk_score:.1f}/100', ui.GRAY)}",
+            state_color,
+        )
+        ui.child(
+            f"ATR {signal.atr_current:.1f}{ui.c('/', ui.DGRAY)}{signal.atr_avg:.1f}"
+            f"{ui.sep()}RSI {signal.rsi:.1f}"
+            f"{ui.sep()}BB {signal.bb_width:.2f}%"
+            f"{ui.sep()}Vol {signal.volume_ratio:.1f}x"
+            f"{ui.sep()}EMA {ema_s:,.0f}/{ema_l:,.0f}",
+            "지표",
+        )
+        regime_detail = ""
+        if self._last_regime_state is not None:
+            rs = self._last_regime_state
+            regime_detail = ui.c(
+                f"  기울기 {rs.slope_pct:+.2f}% · ADX {rs.adx:.1f} · "
+                f"{rs.raw} {rs.streak}/{self.regime_detector.confirm_ticks}",
+                ui.DGRAY,
+            )
+        ui.child(
+            f"{ui.c(trend, ui.TREND_COLOR.get(trend, ui.GRAY))} "
+            f"{ui.c(f'(ADX {trend_strength:.1f})', ui.GRAY)}"
+            f"{ui.sep()}레짐 {ui.c(regime, ui.REGIME_COLOR.get(regime, ui.GRAY), bold=True)}"
+            f"{regime_detail}",
+            "추세",
+        )
 
         # 3. 손절 체크 (최후 백스톱 — 그 전에 DERISK 래더가 단계적으로 작동)
-        print(f"\n{DIM}[3/10]{RESET} {BOLD}손절 조건 체크{RESET} ─ 평균단/총손익 기준 {config.MAX_LOSS_PERCENT}% 이상 손실?")
         try:
             stop_status = self._stop_loss_status(price)
             if stop_status["triggered"]:
-                print(f"  {RED}{BOLD}✗ 손절 조건 도달! 긴급 청산 실행{RESET}")
+                ui.child_err(f"손절 조건 도달! 긴급 청산 실행 — {stop_status['reason']}", "손절")
                 self._full_liquidation(price, reason=stop_status["reason"])
                 return
         except Exception as e:
-            print(f"  {RED}✗ 체크 실패: {e}{RESET}")
+            ui.child_err(f"손절 체크 실패: {e}", "손절")
             stop_status = None
 
         if stop_status and stop_status["basis_price"] > 0:
-            print(
-                f"  {GREEN}✓{RESET} 기준={stop_status['basis_price']:,.0f} "
-                f"({stop_status['basis']}) | 가격손익={-stop_status['price_loss_pct']:+.2f}% | "
-                f"총손익={stop_status['total_pnl']:+,.2f} "
-                f"({stop_status['total_pnl_pct']:+.2f}%) | 한도={config.MAX_LOSS_PERCENT}%"
+            ui.child(
+                f"기준 {stop_status['basis_price']:,.0f} ({stop_status['basis']})"
+                f"{ui.sep()}가격 {-stop_status['price_loss_pct']:+.2f}%"
+                f"{ui.sep()}총손익 {ui.pnl_c(stop_status['total_pnl'])} "
+                f"({stop_status['total_pnl_pct']:+.2f}%)"
+                f"{ui.sep()}{ui.c(f'한도 {config.MAX_LOSS_PERCENT}%', ui.DGRAY)}",
+                "손절",
             )
-        else:
-            print(f"  {GREEN}✓{RESET} 정상 (진입가 미설정)")
 
         # 4. 체결 감시
-        print(f"\n{DIM}[4/10]{RESET} {BOLD}체결 내역 감시{RESET} ─ 신규 매수/매도 확인")
         try:
             self._check_fills(price)
-            # 미실현 손익 계산
             unrealized = 0.0
             if self.holding_qty > 0 and price:
                 avg_buy = self.holding_cost / self.holding_qty
                 unrealized = (price - avg_buy) * self.holding_qty
             total_day = self.daily_realized + unrealized
-            pnl_c = GREEN if total_day >= 0 else RED
-            print(f"  {GREEN}✓{RESET} 매수={self.daily_buys} 매도={self.daily_sells} | "
-                  f"보유={self.holding_qty:.6f} | "
-                  f"실현={self.daily_realized:+,.4f} | "
-                  f"미실현={unrealized:+,.4f} | "
-                  f"{pnl_c}합계={total_day:+,.4f}{RESET}")
+            ui.child(
+                f"매수 {self.daily_buys}{ui.sep()}매도 {self.daily_sells}"
+                f"{ui.sep()}보유 {self.holding_qty:.4f}"
+                f"{ui.sep()}실현 {ui.pnl_c(self.daily_realized)}"
+                f"{ui.sep()}미실현 {ui.pnl_c(unrealized)}"
+                f"{ui.sep()}합계 {ui.pnl_c(total_day)}",
+                "체결",
+            )
         except Exception as e:
-            print(f"  {RED}✗ 감시 실패: {e}{RESET}")
+            ui.child_err(f"체결 감시 실패: {e}", "체결")
 
         # 4.3 결정론적 리스크 관리 (래더 / 헤지 / 하단 존)
-        print(f"\n{DIM}[4.5/10]{RESET} {BOLD}리스크 관리{RESET} ─ 디리스킹 래더 / 헤지 동기화 / 하단 존")
         try:
             risk_action = self._risk_management(signal, price)
         except Exception as e:
-            print(f"  {RED}✗ 리스크 관리 실패: {e}{RESET}")
+            ui.child_err(f"리스크 관리 실패: {e}", "리스크")
             risk_action = None
         if risk_action == "LIQUIDATED":
             return  # 래더 최종 레벨 → 전량 청산 완료, 틱 종료
         if risk_action in ("SHIFT_DOWN",):
             # 하단 존 선제 재배치 → 즉시 실행
-            print(f"\n{DIM}[6/10]{RESET} {BOLD}액션 실행{RESET} ─ {CYAN}{risk_action} (선제 재배치){RESET}")
-            try:
-                self._execute(risk_action, signal, price)
-                print(f"  {GREEN}✓{RESET} 실행 완료")
-            except Exception as e:
-                print(f"  {RED}✗ 실행 실패: {e}{RESET}")
-            ac = CYAN
-            self._post_action_steps(signal, price, risk_action, trend, trend_strength,
-                                     emoji, score_color, trend_color, ac,
-                                     DIM, RESET, BOLD, GREEN, RED, YELLOW, CYAN)
+            self._run_action(risk_action, signal, price, note="하단 존 선제 재배치")
+            self._post_action_steps(signal, price, risk_action, trend, trend_strength)
             return
 
         # 4.5 그리드 이탈 체크
@@ -726,74 +704,55 @@ class GridAgent:
             elapsed_str = ""
             if self.grid_breakout_time:
                 elapsed = (datetime.now() - self.grid_breakout_time).total_seconds()
-                elapsed_str = f" | 이탈 {elapsed/60:.0f}분"
-            print(f"  {YELLOW}⚠ 그리드 이탈 감지{RESET} | "
-                  f"범위: {gl:,.2f}~{gu:,.2f} | "
-                  f"현재가: {price:,.2f}"
-                  f"{elapsed_str} → {breakout_action}")
-            action = breakout_action
-            # 바로 실행으로 점프
-            action_colors = {
-                "MAINTAIN": GREEN, "WIDEN": YELLOW,
-                "STOP": RED, "SHIFT_UP": CYAN, "SHIFT_DOWN": CYAN
-            }
-            ac = action_colors.get(action, RESET)
-            print(f"\n{DIM}[6/10]{RESET} {BOLD}액션 실행{RESET} ─ {ac}{action}{RESET}")
-            try:
-                self._execute(action, signal, price)
-                print(f"  {GREEN}✓{RESET} 실행 완료")
-            except Exception as e:
-                print(f"  {RED}✗ 실행 실패: {e}{RESET}")
-            # 나머지 스텝 계속 (리포트, 상태변화 등)
-            self._post_action_steps(signal, price, action, trend, trend_strength,
-                                     emoji, score_color, trend_color, ac,
-                                     DIM, RESET, BOLD, GREEN, RED, YELLOW, CYAN)
+                elapsed_str = f"{ui.sep()}이탈 {elapsed/60:.0f}분"
+            ui.child_warn(
+                f"그리드 이탈 — 범위 {gl:,.2f}~{gu:,.2f}"
+                f"{ui.sep()}현재가 {price:,.2f}{elapsed_str}",
+                "이탈",
+            )
+            self._run_action(breakout_action, signal, price, note="이탈 대응")
+            self._post_action_steps(signal, price, breakout_action, trend, trend_strength)
             return
 
-        # 5. 의사결정
-        print(f"\n{DIM}[5/10]{RESET} {BOLD}의사결정{RESET} ─ 추세 판단 → 리스크 스코어 → 에이전트 합의")
+        # 5. 의사결정 → 6. 실행
         action = "MAINTAIN"
         try:
             action = self._decide_action(signal, price)
         except Exception as e:
-            print(f"  {RED}✗ 결정 실패, MAINTAIN 유지: {e}{RESET}")
+            ui.child_err(f"결정 실패, MAINTAIN 유지: {e}", "결정")
 
-        action_colors = {
-            "MAINTAIN": GREEN, "WIDEN": YELLOW,
-            "STOP": RED, "SHIFT_UP": CYAN, "SHIFT_DOWN": CYAN
-        }
-        ac = action_colors.get(action, RESET)
-        print(f"  {BOLD}→ 결정: {ac}{action}{RESET}")
+        self._run_action(action, signal, price)
+        self._post_action_steps(signal, price, action, trend, trend_strength)
 
-        # 6. 액션 실행
-        print(f"\n{DIM}[6/10]{RESET} {BOLD}액션 실행{RESET} ─ {ac}{action}{RESET}")
+    def _run_action(self, action: str, signal, price: float, note: str = ""):
+        """액션 실행 + 한 줄 출력."""
+        note_part = f" {ui.c(f'({note})', ui.GRAY)}" if note else ""
         try:
             self._execute(action, signal, price)
-            print(f"  {GREEN}✓{RESET} 실행 완료")
+            ui.child(
+                f"{ui.c(action, ui.ACTION_COLOR.get(action, ui.WHITE), bold=True)}{note_part}",
+                "결정",
+            )
         except Exception as e:
-            print(f"  {RED}✗ 실행 실패: {e}{RESET}")
+            ui.child_err(f"{action} 실행 실패: {e}", "결정")
 
-        self._post_action_steps(signal, price, action, trend, trend_strength,
-                                 emoji, score_color, trend_color, ac,
-                                 DIM, RESET, BOLD, GREEN, RED, YELLOW, CYAN)
+    def _post_action_steps(self, signal, price, action, trend, trend_strength):
+        """틱 마무리 (일일 리포트, 상태 변화 알림, 비용, 상태 저장)."""
+        tail = []
 
-    def _post_action_steps(self, signal, price, action, trend, trend_strength,
-                            emoji, score_color, trend_color, ac,
-                            DIM, RESET, BOLD, GREEN, RED, YELLOW, CYAN):
-        """틱의 7~10 스텝 (일일 리포트, 상태 변화, 비용, 요약)."""
-        # 7. 일일 리포트
-        print(f"\n{DIM}[7/10]{RESET} {BOLD}일일 리포트 체크{RESET} ─ {config.DAILY_REPORT_HOUR}시 발송")
+        # 일일 리포트
         try:
             self._check_daily_report(price)
-            sent = "발송됨" if self._report_sent_date == datetime.now().strftime("%Y-%m-%d") else "미발송"
-            print(f"  {GREEN}✓{RESET} {sent}")
+            if self._report_sent_date == datetime.now().strftime("%Y-%m-%d"):
+                tail.append(f"리포트 {config.DAILY_REPORT_HOUR}시 발송됨")
         except Exception as e:
-            print(f"  {RED}✗ 실패: {e}{RESET}")
+            ui.child_err(f"일일 리포트 실패: {e}", "리포트")
 
-        # 8. 상태 변화 알림
-        print(f"\n{DIM}[8/10]{RESET} {BOLD}상태 변화 감지{RESET} ─ {self.prev_state} → {signal.state}")
+        # 상태 변화 알림
         try:
             if signal.state != self.prev_state:
+                emoji = {"NORMAL": "🟢", "CAUTION": "🟡", "WARNING": "🟠",
+                         "EMERGENCY": "🔴"}.get(signal.state, "⚪")
                 if signal.state in config.NOTIFY_ON_STATES:
                     self.notifier.send(
                         f"{emoji} 상태 변화: {self.prev_state} → {signal.state}\n"
@@ -803,36 +762,28 @@ class GridAgent:
                         f"현재가: {price:,.0f}\n"
                         f"액션: {action}"
                     )
-                    print(f"  {YELLOW}⚡ 상태 변화 알림 발송: {self.prev_state} → {signal.state}{RESET}")
+                    ui.child_warn(f"상태 변화 알림 발송: {self.prev_state} → {signal.state}", "상태")
                 else:
-                    print(f"  {DIM}상태 변화 (알림 대상 아님): {self.prev_state} → {signal.state}{RESET}")
+                    ui.child(ui.c(f"상태 변화 {self.prev_state} → {signal.state} (알림 대상 아님)", ui.GRAY), "상태")
                 self.prev_state = signal.state
-            else:
-                print(f"  {DIM}변화 없음 ({signal.state}){RESET}")
         except Exception as e:
-            print(f"  {RED}✗ 알림 실패: {e}{RESET}")
+            ui.child_err(f"상태 알림 실패: {e}", "상태")
 
-        # 9. 비용 현황
-        print(f"\n{DIM}[9/10]{RESET} {BOLD}비용 현황{RESET}")
-        for line in self.cost_guard.status_report().split("\n"):
-            print(f"  {DIM}{line}{RESET}")
+        # 비용 요약 (한 줄로 압축)
+        try:
+            cost_lines = self.cost_guard.status_report().split("\n")
+            tail.append(cost_lines[0] if cost_lines else "")
+        except Exception:
+            pass
 
-        # 10. 요약 + 텔레그램 틱 리포트
-        print(f"\n{DIM}[10/10]{RESET} {BOLD}틱 완료{RESET}")
-        summary_line = (
-            f"{emoji} {signal.state} | {score_color}{signal.risk_score:.1f}/100{RESET} | "
-            f"{trend_color}{trend}(ADX={trend_strength:.1f}){RESET} | "
-            f"{ac}{action}{RESET} | {price:,.0f} USDT"
-        )
-        print(f"  {summary_line}")
+        if tail:
+            ui.child(ui.c(f"{' · '.join(t for t in tail if t)}", ui.DGRAY), "기타")
 
         # 매 틱 텔레그램 발송
         self._send_tick_report(signal, price, action, trend, trend_strength)
 
         # 상태 저장 (재시작 시 이어받기)
         self._save_state()
-
-        print(f"{CYAN}{'─' * 60}{RESET}")
 
     # ─── 의사결정 ──────────────────────────────────────────
 
@@ -1414,8 +1365,11 @@ class GridAgent:
             range_pos = (price - gl) / (gu - gl) * 100
             if range_pos <= config.BOTTOM_ZONE_PCT:
                 self.bottom_zone_ticks += 1
-                print(f"  하단 존 체류 {self.bottom_zone_ticks}/{config.BOTTOM_ZONE_CONFIRM_TICKS}틱 "
-                      f"(범위 내 위치 {range_pos:.1f}%)")
+                ui.child_warn(
+                    f"하단 존 체류 {self.bottom_zone_ticks}/{config.BOTTOM_ZONE_CONFIRM_TICKS}틱 "
+                    f"(범위 내 위치 {range_pos:.1f}%)",
+                    "리스크",
+                )
                 if self.bottom_zone_ticks >= config.BOTTOM_ZONE_CONFIRM_TICKS:
                     allowed, skip_reason = self._check_restart_allowed("SHIFT_DOWN", price)
                     if allowed:
@@ -1473,7 +1427,15 @@ class GridAgent:
             self.hedge_qty = result.get("current", self.hedge_qty)
         elif status == "error":
             self._log("헤지 조정 실패 — 다음 틱 재시도", level="ERROR")
-        print(f"  헤지: 목표 {target:.4f} | 상태 {status or 'n/a'} | 레짐 {regime}")
+
+        ladder = self.derisk_ladder.current_level
+        if target > 0 or ladder > 0 or status == "adjusted":
+            ui.child(
+                f"헤지 목표 {target:.4f}{ui.sep()}숏 {result.get('current', 0.0):.4f}"
+                f"{ui.sep()}래더 L{ladder}"
+                f"{ui.sep()}{ui.c(status or 'n/a', ui.DGRAY)}",
+                "리스크",
+            )
 
     def _full_liquidation(self, price: float, reason: str):
         """검증된 전량 청산: 봇 정지+매도 → 잔고 확인 → 잔존 시 직접 매도 → 헤지 종료.
@@ -2496,38 +2458,9 @@ class GridAgent:
     # ─── 대기 프로그레스 바 ────────────────────────────────────
 
     def _wait_with_progress(self, seconds: int):
-        """다음 틱까지 프로그레스 바로 대기 시간 시각화."""
-        BAR_WIDTH = 40
-        DIM = "\033[2m"
-        CYAN = "\033[96m"
-        GREEN = "\033[92m"
-        RESET = "\033[0m"
-        BOLD = "\033[1m"
-
-        for elapsed in range(seconds):
-            remaining = seconds - elapsed
-            progress = elapsed / seconds
-            filled = int(BAR_WIDTH * progress)
-            bar = "█" * filled + "░" * (BAR_WIDTH - filled)
-
-            mins, secs = divmod(remaining, 60)
-            time_str = f"{mins}:{secs:02d}" if mins else f"{secs}초"
-
-            print(
-                f"\r  {DIM}⏳{RESET} {CYAN}{bar}{RESET} "
-                f"{GREEN}{progress*100:5.1f}%{RESET} "
-                f"{DIM}(다음 틱까지 {time_str}){RESET}",
-                end="", flush=True
-            )
-            time.sleep(1)
-
-        # 완료
-        bar = "█" * BAR_WIDTH
-        print(
-            f"\r  {DIM}✓{RESET}  {GREEN}{bar}{RESET} "
-            f"{GREEN}{BOLD}100.0%{RESET} "
-            f"{DIM}(시작!){RESET}              "
-        )
+        """다음 틱까지 스피너 + 카운트다운 (Claude Code 스타일 한 줄)."""
+        status = f"{config.SYMBOL} · 레짐 {self.regime_detector.regime}"
+        ui.wait_progress(seconds, status=status)
 
     # ─── 손절 체크 ─────────────────────────────────────────
 
@@ -2541,8 +2474,12 @@ class GridAgent:
     # ─── 로그 ──────────────────────────────────────────────
 
     def _log(self, msg: str, level: str = "INFO"):
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{ts}] [{level}] {msg}")
+        ts = datetime.now().strftime("%H:%M:%S")
+        color = {"INFO": ui.GRAY, "WARNING": ui.YELLOW,
+                 "ERROR": ui.RED, "CRITICAL": ui.RED}.get(level, ui.GRAY)
+        marker = ui.c("✻", color)
+        level_part = "" if level == "INFO" else f"{ui.c(level, color, bold=True)} "
+        print(f" {marker} {ui.c(ts, ui.DGRAY)} {level_part}{msg}")
 
 
 # ──────────────────────────────────────────────────────────────

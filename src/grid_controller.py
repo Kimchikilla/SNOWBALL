@@ -13,6 +13,7 @@ _RETRY_DELAY = 2
 
 # config 핫리로드 호환을 위해 from-import 대신 config.X로 참조한다.
 import config
+import ui
 
 
 class GridController:
@@ -842,8 +843,12 @@ class GridController:
     # ─── 로깅 ────────────────────────────────────────────────
 
     def _log(self, msg: str, level: str = "INFO"):
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{ts}] [{level}] [GridController] {msg}")
+        ts = datetime.now().strftime("%H:%M:%S")
+        color = {"INFO": ui.GRAY, "WARNING": ui.YELLOW,
+                 "ERROR": ui.RED, "CRITICAL": ui.RED}.get(level, ui.GRAY)
+        marker = ui.c("✻", color)
+        level_part = "" if level == "INFO" else f"{ui.c(level, color, bold=True)} "
+        print(f" {marker} {ui.c(ts, ui.DGRAY)} {level_part}{ui.c('grid', ui.DGRAY)} {msg}")
 
 
 # ──────────────────────────────────────────────────────────────
